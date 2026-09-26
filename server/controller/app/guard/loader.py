@@ -1,7 +1,7 @@
 """Option A sys.path bootstrap for the S.H.O.A.V. filter core.
 
 Root resolution: SHOAV_FILTERS_PATH (Settings.shoav_filters_path) when set,
-else parents[5] (shoav-mcp root) relative to this file. All import failures
+else the repo's guard/ directory (parents[4] / "guard") relative to this file. All import failures
 degrade to (None, None) with a log line so the controller fails open.
 """
 
@@ -16,18 +16,18 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_shoav_root(filters_path: str | None) -> Path:
-    """Return the shoav-mcp repo root without touching sys.path."""
+    """Return the guard root (holds filters/ and connectors/) without touching sys.path."""
     if filters_path:
         candidate = Path(filters_path).expanduser().resolve()
-        # Accept both the shoav-mcp root and the filters dir itself so a
-        # SHOAV_FILTERS_PATH pointing at .../shoav-mcp/filters keeps working.
+        # Accept both the guard root and the filters dir itself so a
+        # SHOAV_FILTERS_PATH pointing at .../guard/filters keeps working.
         if candidate.name == "filters" and (candidate / "ingress").is_dir():
             return candidate.parent.resolve()
         return candidate
     here = Path(__file__).resolve()
-    # guard/loader.py -> parents[5] is the shoav-mcp root in the fresh copy
-    # at shoav-mcp/MCP/auto-browser.
-    return here.parents[5].resolve()
+    # server/controller/app/guard/loader.py -> parents[4] is the repo root;
+    # the guard root is <repo>/guard (guard/filters, guard/connectors).
+    return (here.parents[4] / "guard").resolve()
 
 
 def _ensure_sys_path(root: Path) -> None:
@@ -41,7 +41,7 @@ def _ensure_sys_path(root: Path) -> None:
 def load_filter_classes(settings: Any) -> tuple[Any | None, Any | None]:
     """Import IngressFilter/EgressFilter, fail open to (None, None) with a log.
 
-    Also probes shoav-mcp/connectors (owned by another agent); a missing
+    Also probes guard/connectors (owned by another agent); a missing
     connectors package is tolerated and logged at info level.
     """
     filters_path = getattr(settings, "shoav_filters_path", None) or None

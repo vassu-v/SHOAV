@@ -39,11 +39,11 @@ class ShoavConfigTests(unittest.TestCase):
             self.assertEqual(Settings(_env_file=None).shoav_guard_mode, "enforce")
 
     def test_fail_and_path_from_env(self) -> None:
-        env = {"SHOAV_GUARD_FAIL": "closed", "SHOAV_FILTERS_PATH": "D:/shoav-mcp"}
+        env = {"SHOAV_GUARD_FAIL": "closed", "SHOAV_FILTERS_PATH": "D:/guard"}
         with patch.dict(os.environ, env):
             settings = Settings(_env_file=None)
             self.assertEqual(settings.shoav_guard_fail, "closed")
-            self.assertEqual(settings.shoav_filters_path, "D:/shoav-mcp")
+            self.assertEqual(settings.shoav_filters_path, "D:/guard")
 
     def test_invalid_mode_rejected(self) -> None:
         with self.assertRaises(ValidationError):
@@ -56,13 +56,19 @@ class ShoavConfigTests(unittest.TestCase):
 
 class ShoavLoaderTests(unittest.TestCase):
     def test_explicit_path_resolves(self) -> None:
-        root = resolve_shoav_root("D:/x/shoav-mcp")
-        self.assertEqual(root.name, "shoav-mcp")
+        root = resolve_shoav_root("D:/x/guard")
+        self.assertEqual(root.name, "guard")
 
-    def test_default_root_is_parents5_shoav_mcp(self) -> None:
+    def test_default_root_is_repo_guard_dir(self) -> None:
         loader_file = Path(__file__).resolve().parent.parent / "app" / "guard" / "loader.py"
-        expected = loader_file.resolve().parents[5].resolve()
+        expected = (loader_file.resolve().parents[4] / "guard").resolve()
         self.assertEqual(resolve_shoav_root(None), expected)
+
+    def test_explicit_filters_dir_resolves_to_guard_root(self) -> None:
+        default_root = resolve_shoav_root(None)
+        if not (default_root / "filters" / "ingress").is_dir():
+            self.skipTest("guard/filters not present")
+        self.assertEqual(resolve_shoav_root(str(default_root / "filters")), default_root)
 
     def test_missing_root_fails_open(self) -> None:
         settings = Settings(
@@ -80,7 +86,7 @@ class ShoavLoaderTests(unittest.TestCase):
         )
         self.assertEqual(load_filter_classes(settings), (None, None))
 
-    @unittest.skipUnless(_shoav_root() is not None, "shoav-mcp checkout not above controller")
+    @unittest.skipUnless(_shoav_root() is not None, "guard/ checkout not next to server/")
     def test_real_root_loads_filters(self) -> None:
         root = _shoav_root()
         assert root is not None
@@ -109,7 +115,7 @@ class ShoavGuardFactoryTests(unittest.TestCase):
         )
         self.assertIsNone(ShoavGuard.from_settings(settings))
 
-    @unittest.skipUnless(_shoav_root() is not None, "shoav-mcp checkout not above controller")
+    @unittest.skipUnless(_shoav_root() is not None, "guard/ checkout not next to server/")
     def test_observe_builds_guard(self) -> None:
         root = _shoav_root()
         assert root is not None
@@ -124,7 +130,7 @@ class ShoavGuardFactoryTests(unittest.TestCase):
         self.assertEqual(guard.mode, "observe")
         self.assertEqual(guard.fail, "open")
 
-    @unittest.skipUnless(_shoav_root() is not None, "shoav-mcp checkout not above controller")
+    @unittest.skipUnless(_shoav_root() is not None, "guard/ checkout not next to server/")
     def test_enforce_closed_builds_guard(self) -> None:
         root = _shoav_root()
         assert root is not None
@@ -189,7 +195,7 @@ class ShoavGuardDecideTests(unittest.TestCase):
         self.assertEqual(closed_result["verdict"], "BLOCK")
         self.assertTrue(closed_result["enforced"])
 
-    @unittest.skipUnless(_shoav_root() is not None, "shoav-mcp checkout not above controller")
+    @unittest.skipUnless(_shoav_root() is not None, "guard/ checkout not next to server/")
     def test_real_ingress_observe_is_advisory(self) -> None:
         from filters.ingress import IngressFilter
 

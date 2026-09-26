@@ -22,7 +22,7 @@ from ..ingress import rules
 from ..ingress.engine import IngressFilter
 from ..types import Verdict
 
-FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
+FIXTURE_DIR = Path(__file__).resolve().parents[3] / "e2e" / "fixtures"
 
 BENIGN_FILES = [
     "benign_cookie.html",

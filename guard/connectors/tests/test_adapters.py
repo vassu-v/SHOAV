@@ -1,6 +1,6 @@
 """T-1 adapters suite (spec only, independent of detector authors).
 
-Spec source: shoav-mcp/MCP/plan.md sections 5-6, shoav-mcp/filters/plan.md.
+Spec source: docs/integration/plan.md sections 5-6, guard/filters/plan.md.
 Covers: normalize_observe / snapshot / find_elements / get_html payload
 builders, apply_rewrite leading _shoav key, block error-first shape,
 egress args builder, session cache reset.

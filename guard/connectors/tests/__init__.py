@@ -1,1 +1,1 @@
-"""Tests for shoav-mcp connectors."""
+"""Tests for SHOAV guard connectors."""

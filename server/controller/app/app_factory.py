@@ -98,8 +98,8 @@ def build_controller_services(settings: Settings, *, version: str) -> Controller
     maintenance = MaintenanceService(settings, session_provider=lambda: manager.sessions.values())
     mcp_transport = McpHttpTransport(
         tool_gateway=tool_gateway,
-        server_name="auto-browser",
-        server_title="Auto Browser MCP",
+        server_name="shoav",
+        server_title="SHOAV MCP",
         server_version=version,
         allowed_origins=settings.mcp_allowed_origin_list,
         session_store_path=settings.mcp_session_store_path,
@@ -138,10 +138,10 @@ def create_controller_app(
     lifespan: LifespanFactory,
 ) -> FastAPI:
     application = FastAPI(
-        title="Auto Browser Controller",
+        title="SHOAV Controller",
         version=version,
         lifespan=lifespan,
-        summary="Visual Auto Browser control plane for LLM workflows.",
+        summary="SHOAV guarded browser control plane for LLM workflows (based on Auto Browser).",
     )
     install_controller_host_middleware(application, services.settings.controller_allowed_host_patterns)
 

@@ -21,9 +21,9 @@ from types import SimpleNamespace
 
 from app.tool_gateway import McpToolGateway
 
-# Make shoav-mcp root importable so filters.egress.engine resolves
+# Make the repo's guard/ root importable so filters.egress.engine resolves
 # without network or browser. Path insert only, no product change.
-_SHOAV_ROOT = Path(__file__).resolve().parents[4]
+_SHOAV_ROOT = Path(__file__).resolve().parents[3] / "guard"
 if str(_SHOAV_ROOT) not in sys.path:
     sys.path.insert(0, str(_SHOAV_ROOT))
 

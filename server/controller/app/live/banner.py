@@ -27,7 +27,7 @@ def _row(text: str) -> str:
 def build_banner(session_id: str, url: str) -> str:
     lines = [
         "┌" + "─" * _INNER + "┐",
-        _row("AUTO BROWSER  live view"),
+        _row("SHOAV  live view"),
         _row(f"session  {session_id}"),
         _row(f"watch    {url}"),
         "└" + "─" * _INNER + "┘",

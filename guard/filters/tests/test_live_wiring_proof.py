@@ -25,7 +25,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-CONTROLLER = ROOT / "MCP" / "auto-browser" / "controller"
+CONTROLLER = ROOT.parent / "server" / "controller"
 if str(CONTROLLER) not in sys.path:
     sys.path.insert(0, str(CONTROLLER))
 
@@ -203,7 +203,7 @@ class TestOverlayLiveProbe(unittest.TestCase):
 
 class TestFormStateLiveProbe(unittest.TestCase):
     def test_prechecked_html_content_matches_canned_controls(self):
-        html = (ROOT / "fixtures" / "prechecked.html").read_text(encoding="utf-8")
+        html = (ROOT.parent / "e2e" / "fixtures" / "prechecked.html").read_text(encoding="utf-8")
         self.assertIn("mkt-optin", html)
         self.assertIn("checked", html)
         self.assertIn("marketing", html.lower())
@@ -269,7 +269,7 @@ class TestFloodLiveProbe(unittest.TestCase):
         self.assertEqual(res["verdict"], Verdict.BLOCK)
 
     def test_flood_html_shape_blocks_benign_allows(self):
-        html = (ROOT / "fixtures" / "flood.html").read_text(encoding="utf-8")
+        html = (ROOT.parent / "e2e" / "fixtures" / "flood.html").read_text(encoding="utf-8")
         self.assertIn("720", html)
         payload = {"interactables": [], "text_excerpt": "Catalog",
                    "accessibility_outline": {"nodes": []}}

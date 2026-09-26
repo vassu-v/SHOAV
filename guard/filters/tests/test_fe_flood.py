@@ -1,8 +1,8 @@
 """F-E spec tests: context flood BLOCK vs benign ALLOW (Target 4).
 
-Spec sources: shoav-mcp/MCP/plan.md section 5 (ingress BLOCK on flood:
+Spec sources: docs/integration/plan.md section 5 (ingress BLOCK on flood:
 isError true, error key first, then shoav detail) and
-shoav-mcp/DETERMINISTIC_TARGETS.md Target 4 plus filters/constants.py
+guard/DETERMINISTIC_TARGETS.md Target 4 plus filters/constants.py
 thresholds (node trigger 150 with gross-flood floor at 4x, raw element
 floor 500, raw text floor 16000 chars, mutation threshold 50/sec).
 

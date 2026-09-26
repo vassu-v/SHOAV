@@ -46,13 +46,13 @@ for raw in sys.stdin:
                 print(f"AGENT  {b['text'].strip()}\n")
             elif b.get("type") == "tool_use":
                 calls[b["id"]] = b["name"]
-                print(f"CALL   {b['name'].replace('mcp__auto-browser__', '')}  {clip(b.get('input', {}), 160)}")
+                print(f"CALL   {b['name'].replace('mcp__shoav__', '')}  {clip(b.get('input', {}), 160)}")
     elif kind == "user":
         content = ev["message"].get("content")
         if isinstance(content, list):
             for b in content:
                 if b.get("type") == "tool_result":
-                    name = calls.get(b.get("tool_use_id"), "?").replace("mcp__auto-browser__", "")
+                    name = calls.get(b.get("tool_use_id"), "?").replace("mcp__shoav__", "")
                     flag = "ERROR " if b.get("is_error") else ""
                     text = result_text(b)
                     if "AUTO BROWSER" in text and "watch" in text:

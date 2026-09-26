@@ -66,5 +66,7 @@ GEMINI.md
 
 # --- Local runtime data (controller state, artifacts, proof runs) ---
 .local-data*/
-shoav-mcp/tmp_*
+/tmp_*
+guard/tmp_*
+e2e/tmp_*
 web/.qa/

@@ -199,7 +199,7 @@ A controller restart marks previously `live` sessions with no live browser as `a
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ AUTO BROWSER  live view                                  │
+│ SHOAV  live view                                         │
 │ session  a5af842a89e1                                    │
 │ watch    http://127.0.0.1:3100/s/a5af842a89e1            │
 └──────────────────────────────────────────────────────────┘

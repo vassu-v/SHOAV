@@ -107,8 +107,9 @@ class Settings(BaseSettings):
     # S.H.O.A.V. guard wiring (C-1). Modes: off (no guard object, zero
     # overhead) | observe (run filters, note only) | enforce (block/rewrite).
     shoav_guard_mode: Literal["off", "observe", "enforce"] = Field("off", alias="SHOAV_GUARD_MODE")
-    # Filesystem root of the shoav-mcp repo for the option A sys.path
-    # bootstrap in app/guard/loader.py. Empty means parents[5] (shoav-mcp root).
+    # Guard root (the repo's guard/ dir holding filters/ and connectors/), or
+    # guard/filters itself, for the option A sys.path bootstrap in
+    # app/guard/loader.py. Empty means <repo>/guard next to server/.
     shoav_filters_path: str | None = Field(None, alias="SHOAV_FILTERS_PATH")
     # Filter exception policy: open (allow with a guard note) | closed
     # (treat errors as BLOCK). Default open per MCP/plan.md section 3.
