@@ -33,7 +33,7 @@ using agent-targeted dark patterns and UI traps to hijack automated workflows.
 
 ## What this is
 
-`shoav-skill` packages the S.H.O.A.V. defensive engine into a portable agent skill.
+This folder packages the S.H.O.A.V. defensive engine into a portable agent skill.
 
 It equips any multimodal or DOM-driven agent with mathematical invariants (WCAG 2.1
 contrast formulas, coordinate hit-testing, zero-default form auditing, and semantic
@@ -43,44 +43,64 @@ guilt normalization) to survive adversarial web interfaces.
 
 ## Setup
 
-Install the skill into your agent's skills directory:
+Install with the S.H.O.A.V. CLI (needs Node 18 or newer). Run it from your project folder:
 
 ```bash
-# Direct via npx (installs to ~/.gemini/config/skills/SHOAV_SKILLforAGENTS)
-npx shoav-skill
+# Pick your agent: claude | opencode | agy | codex | cursor
+npx github:vassu-v/SHOAV install --what skill --agent claude
 
-# Or target Claude Code / Cursor
-npx shoav-skill --target claude
-npx shoav-skill --target cursor
+# Or, from a clone of this repo
+node cli/bin/shoav.js install --what skill --agent claude
 ```
 
-Or copy the `skill/` folder manually into:
-- **Antigravity CLI / IDE**: `~/.gemini/config/skills/SHOAV_SKILLforAGENTS/`
-- **Claude Code**: `.claude/skills/SHOAV_SKILLforAGENTS/`
-- **Cursor / Windsurf**: `.cursor/skills/SHOAV_SKILLforAGENTS/`
+Flags: `--scope project|user` (project folder or your home folder), `--dir <path>` (custom
+destination), `--dry-run` (show what would be written), `--yes` (skip prompts).
+
+Manual fallback: copy this `skill/` folder to the place your agent reads skills from.
+
+| Agent | Destination |
+| :--- | :--- |
+| Claude Code | `<project>/.claude/skills/shoav/` |
+| OpenCode | `<project>/.opencode/skills/shoav/` |
+| Cursor | `<project>/.cursor/skills/shoav/` |
+| Antigravity CLI (`agy`), Codex | `<project>/.agents/skills/shoav/` |
+| `agy` at user scope | `~/.gemini/config/skills/shoav/` |
+
+```bash
+# macOS / Linux
+mkdir -p .claude/skills && cp -r skill .claude/skills/shoav
+```
+```powershell
+# Windows PowerShell
+New-Item -ItemType Directory -Force .claude\skills | Out-Null; Copy-Item -Recurse skill .claude\skills\shoav
+```
+
+Copy the whole folder, not just `SKILL.md`, so `scripts/` comes along. Check the copy with
+`sh scripts/selftest.sh` (needs `node` and `python3`).
 
 <br>
 
 ## Using with any agent
 
-**Antigravity CLI (`agy`) & Gemini CLI**  
-Auto-discovered when placed in `~/.gemini/config/skills/SHOAV_SKILLforAGENTS`.
+**With the S.H.O.A.V. MCP (recommended).** The guard enforces these checks on every browser
+action (MCP server key `shoav`, default URL `http://127.0.0.1:18500/mcp`, tools named
+`browser_*`). The skill then explains what the guard blocks and how to recover.
+
+**Antigravity CLI (`agy`) and Gemini CLI** auto-discover the skill in `~/.gemini/config/skills/`.
 ```bash
-agy "Use the browser to shop for headphones, keeping SHOAV_SKILLforAGENTS active."
+agy "Use the browser to shop for headphones, keeping the shoav skill active."
 ```
 
-**Claude Code, Cursor, & Windsurf**  
-Reference the installed skill path in your project's `CLAUDE.md`, `.cursorrules`, or system instructions:
-```markdown
-Follow the defense protocols and 5-point verification checklist in:
-- Claude Code: `.claude/skills/SHOAV_SKILLforAGENTS/SKILL.md`
-- Cursor / Windsurf: `.cursor/skills/SHOAV_SKILLforAGENTS/SKILL.md`
-(or `skill/SKILL.md` if copied directly into project root).
-```
+**Claude Code** loads `.claude/skills/shoav/SKILL.md` on its own. **OpenCode, Codex, Cursor** read
+`.agents/skills/shoav/SKILL.md`. If your tool has no skill support, point its rules file
+(`CLAUDE.md`, `AGENTS.md`, `.cursorrules`) at the installed `SKILL.md`.
 
-**Custom browser agents (Playwright, Puppeteer, Browser-Use)**  
-- **Prompt level:** Load `skill/SKILL.md` into the agent's system prompt before navigation tasks.
-- **Runtime hooks:** Execute the scripts in `skill/scripts/` (`audit_telemetry.js`, `inspect_zindex_overlays.js`, `cart_invariants_auditor.py`) to audit page overlays, contrast, and cart totals before dispatching clicks.
+**Agents that keep their own browser (Playwright, Puppeteer, Browser-Use).** Load `SKILL.md`
+into the system prompt. Only if you have no guard and no page evaluator, use the fallback scripts
+in `scripts/`:
+- `audit_telemetry.js`, `inspect_zindex_overlays.js`, `calculate_contrast.js` are browser scripts.
+  Evaluate their text in the page, for example `page.evaluate(fs.readFileSync('audit_telemetry.js', 'utf8'))`.
+- `cart_invariants_auditor.py` and `semantic_normalizer.py` are plain Python, see the usage table in `SKILL.md` section 4.
 
 <br>
 
