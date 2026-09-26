@@ -153,11 +153,11 @@ export const howItWorksHtml = `
             <tr><th>Path</th><th>What is there</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>shoav-mcp/filters/</code></td><td>Deterministic ingress and egress rules, probes, session state, tests</td></tr>
-            <tr><td><code>shoav-mcp/connectors/</code></td><td>Payload adapters between the MCP and the filters</td></tr>
-            <tr><td><code>shoav-mcp/MCP/</code></td><td>The browser MCP server, live UI, start scripts, agent templates, integration plan</td></tr>
-            <tr><td><code>shoav-mcp/fixtures/</code></td><td>Tiny synthetic pages for unit and end-to-end tests</td></tr>
-            <tr><td><code>shoav-skill/</code></td><td>The agent skill</td></tr>
+            <tr><td><code>guard/filters/</code></td><td>Deterministic ingress and egress rules, probes, session state, tests</td></tr>
+            <tr><td><code>guard/connectors/</code></td><td>Payload adapters between the MCP and the filters</td></tr>
+            <tr><td><code>server/</code></td><td>The SHOAV MCP server, live UI and start scripts</td></tr>
+            <tr><td><code>e2e/fixtures/</code></td><td>Tiny synthetic pages for unit and end-to-end tests</td></tr>
+            <tr><td><code>skill/</code></td><td>The agent skill, installed by <code>cli/</code></td></tr>
             <tr><td><code>docs/research/</code></td><td>Evidence base behind the detection targets</td></tr>
           </tbody>
         </table>

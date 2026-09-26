@@ -35,7 +35,7 @@ function initCliTabSwitcher() {
   if (!codeDisplay) return;
 
   const snippets = {
-    agy: `<span class="comment"># start the MCP (guard mode: off, observe or enforce)</span>\n<span class="cmd-prefix">powershell</span> -ExecutionPolicy Bypass -File shoav-mcp\\MCP\\auto-browser\\scripts\\start-local.ps1 <span class="cmd-flag">-Port</span> 18500 <span class="cmd-flag">-Background</span> <span class="cmd-flag">-Guard</span> enforce\n\n<span class="comment"># then point agy at it</span>\n<span class="cmd-prefix">agy</span> mcp add <span class="cmd-flag">--type</span> http auto-browser <span class="cmd-url">http://127.0.0.1:18500/mcp</span>`,
+    agy: `<span class="comment"># start the MCP (guard mode: off, observe or enforce)</span>\n<span class="cmd-prefix">powershell</span> -ExecutionPolicy Bypass -File server\\scripts\\start-local.ps1 <span class="cmd-flag">-Port</span> 18500 <span class="cmd-flag">-Background</span> <span class="cmd-flag">-Guard</span> enforce\n\n<span class="comment"># then point agy at it</span>\n<span class="cmd-prefix">agy</span> mcp add <span class="cmd-flag">--type</span> http auto-browser <span class="cmd-url">http://127.0.0.1:18500/mcp</span>`,
 
     claude: `<span class="comment">// add to Claude Desktop's mcpServers.json</span>\n{\n  <span class="cmd-flag">"mcpServers"</span>: {\n    <span class="cmd-flag">"auto-browser-shoav"</span>: {\n      <span class="cmd-flag">"url"</span>: <span class="cmd-url">"http://127.0.0.1:18500/mcp"</span>,\n      <span class="cmd-flag">"type"</span>: <span class="cmd-url">"http"</span>\n    }\n  }\n}`,
 

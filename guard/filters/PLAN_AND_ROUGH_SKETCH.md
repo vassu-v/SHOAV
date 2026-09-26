@@ -79,18 +79,18 @@ Here is the deep-dive analysis of both options:
 * **Advantages**:
   1. *Universal Compatibility*: Works with *any* agent (`agy`, Claude Desktop, Cursor) and *any* browser MCP server without changing a single line of third-party source code.
   2. *Zero Docker Overhead*: Runs natively on Windows 11 with Node/Bun and Python. Instant startup, zero container networking bugs.
-  3. *Clean Packaging*: Lives cleanly in our own directory (`shoav-mcp/`), fully version-controlled in git.
+  3. *Clean Packaging*: Lives cleanly in our own directory (`guard/`), fully version-controlled in git.
 * **The Challenge**:
   - The proxy receives JSON-RPC tool calls. For Ingress (`browser_snapshot`), it can inspect and rewrite the response JSON directly. But for Egress (`browser_click`), to run `document.elementFromPoint(x, y)`, the proxy needs a mechanism to evaluate JavaScript in the browser. In `@playwright/mcp`, this can be done via `browser_evaluate` or by attaching a lightweight CDP/Playwright handle.
 
 ### The Recommended Decision: The Unified Adapter Pattern (Golden Path)
 We should **not** lock ourselves into either extreme. Instead:
-1. Implement the core filters as **pure, framework-agnostic Python modules** in `shoav-mcp/filters/`:
-   - `shoav-mcp/filters/ingress.py`: Pure DOM/text sanitizer, node compactor, and telemetry formatter.
-   - `shoav-mcp/filters/egress.py`: Pure geometric hit-tester, coordinate calculator, and overlay checker.
+1. Implement the core filters as **pure, framework-agnostic Python modules** in `guard/filters/`:
+   - `guard/filters/ingress.py`: Pure DOM/text sanitizer, node compactor, and telemetry formatter.
+   - `guard/filters/egress.py`: Pure geometric hit-tester, coordinate calculator, and overlay checker.
 2. Provide **two lightweight adapters**:
-   - `shoav-mcp/proxy.py`: Stdio MCP reverse proxy for `agy` + `@playwright/mcp` (primary demo vehicle).
-   - `shoav-mcp/gateway_patch.py`: A clean decorator/subclass for `McpToolGateway.call_tool()` if the teammate or other users want to run `external/auto-browser`.
+   - `guard/proxy.py`: Stdio MCP reverse proxy for `agy` + `@playwright/mcp` (primary demo vehicle).
+   - `guard/gateway_patch.py`: A clean decorator/subclass for `McpToolGateway.call_tool()` if the teammate or other users want to run `external/auto-browser`.
 *Why this wins*: The core logic is written once, 100% unit-tested, and works under both runtimes!
 
 ---
@@ -223,7 +223,7 @@ Agent Requests Action: browser_click(ref="e15", selector="#submit-btn")
    - When running as `shoav_proxy.py` over `@playwright/mcp`, how does the proxy trigger `document.elementFromPoint` before allowing `browser_click`?
    - *Resolution*: `@playwright/mcp` exposes `browser_evaluate` (or CDP session). Before forwarding `browser_click`, the proxy issues an internal `browser_evaluate` request with our hit-test JS snippet, reads the boolean verdict, and then either forwards the original click or returns the block error.
 2. **Local Jev / JevEmbed Integration**:
-   - Can we package `JevEmbed` with an ultra-lightweight sentence transformer (`all-MiniLM-L6-v2`, 80MB) inside `shoav-mcp/`?
-   - *Resolution*: Yes. We will make it an optional acceleration module (`shoav-mcp/filters/fast_classifier.py`). If installed, it provides 20ms local semantic scoring; if omitted, the deterministic structural core functions with zero dependencies.
+   - Can we package `JevEmbed` with an ultra-lightweight sentence transformer (`all-MiniLM-L6-v2`, 80MB) inside `guard/`?
+   - *Resolution*: Yes. We will make it an optional acceleration module (`guard/filters/fast_classifier.py`). If installed, it provides 20ms local semantic scoring; if omitted, the deterministic structural core functions with zero dependencies.
 3. **Preserving Form State History**:
    - The Ingress filter will cache the initial state of forms (`checked`, `value`) upon navigation so the Egress filter can diff form state prior to submission.

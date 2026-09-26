@@ -1,7 +1,7 @@
-# Subsystem Context: S.H.O.A.V. Deterministic Filters (`shoav-mcp/filters/`)
+# Subsystem Context: S.H.O.A.V. Deterministic Filters (`guard/filters/`)
 
 > **Subsystem**: S.H.O.A.V. Filter Engine (Ingress & Egress)  
-> **Location**: `shoav-mcp/filters/context.md`  
+> **Location**: `guard/filters/context.md`  
 > **Last Updated**: 2026-09-25 15:30  
 > **Status**: Architecture, Rough Sketch, and Integration Strategy Finalized; Pre-Build Stage  
 
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary & Purpose
 
-This document is the dedicated single source of truth for the `shoav-mcp/filters/` subsystem. It captures the entire dialogue, thought evolution, architectural trade-offs, research insights, and concrete code sketches for:
+This document is the dedicated single source of truth for the `guard/filters/` subsystem. It captures the entire dialogue, thought evolution, architectural trade-offs, research insights, and concrete code sketches for:
 1. **Filter 1 (Ingress)**: Deterministic DOM pruning, CSS cloaking removal, context overloading protection, and tree compaction (`ALLOW`, `BLOCK`, `REWRITE`).
 2. **Filter 2 (Egress)**: Deterministic physical hit-testing via `document.elementFromPoint`, clickjacking overlay detection, and form state auditing (`ALLOW`, `BLOCK`, `ESCALATE`).
 3. **Integration Strategy**: Why we are directly modifying the internals of `external/auto-browser` to power the live visual dashboard.
@@ -104,7 +104,7 @@ This document is the dedicated single source of truth for the `shoav-mcp/filters
 
 ### 3.1 Rough Code Sketch: Filter 1 (Ingress)
 ```python
-# shoav-mcp/filters/ingress.py (Rough Sketch)
+# guard/filters/ingress.py (Rough Sketch)
 
 class IngressFilter:
     MAX_INTERACTIVE_NODES = 50
@@ -177,7 +177,7 @@ class IngressFilter:
 
 ### 3.2 Rough Code Sketch: Filter 2 (Egress)
 ```python
-# shoav-mcp/filters/egress.py (Rough Sketch)
+# guard/filters/egress.py (Rough Sketch)
 
 class EgressFilter:
     @staticmethod
@@ -250,6 +250,6 @@ We directly hook the filters into `external/auto-browser`:
 
 ## 5. Next Steps
 
-1. Create `shoav-mcp/filters/ingress.py` implementing the Ingress Filter module.
-2. Create `shoav-mcp/filters/egress.py` implementing the Egress Hit-Test module.
+1. Create `guard/filters/ingress.py` implementing the Ingress Filter module.
+2. Create `guard/filters/egress.py` implementing the Egress Hit-Test module.
 3. Hook both filters into `external/auto-browser/controller/app/` and test against the live TrickyArena benchmark (`shopping?dp=w`).

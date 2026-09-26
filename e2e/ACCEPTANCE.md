@@ -1,4 +1,4 @@
-# REVIEW.md: reviewer checklist and acceptance criteria
+# ACCEPTANCE.md: reviewer checklist and acceptance criteria
 
 Scope is Targets 1 to 4 only (hidden text, clickjacking overlay, pre-checked toggle, context flood). Target 5 (cart) and language-level patterns are out of scope.
 

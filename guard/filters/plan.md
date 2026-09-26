@@ -1,6 +1,6 @@
 # filters/plan.md
 
-Status of the deterministic filter core and what remains inside `shoav-mcp/filters/`.
+Status of the deterministic filter core and what remains inside `guard/filters/`.
 The integration plan is in `../MCP/plan.md`.
 
 ## Scope decision

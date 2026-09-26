@@ -403,8 +403,8 @@ export const homeHtml = `
           <h3 class="setup-path-title">Install the skill</h3>
           <p class="setup-path-desc">For agents that already have their own browser and can't take an MCP. Advisory only, but it teaches the agent the same dark-pattern vigilance the guard enforces.</p>
           <div class="setup-path-command">
-            <code>npx shoav-skill install</code>
-            <button class="icon-btn" title="Copy command" data-copy-text="npx shoav-skill install">
+            <code>npx github:vassu-v/SHOAV</code>
+            <button class="icon-btn" title="Copy command" data-copy-text="npx github:vassu-v/SHOAV">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             </button>
           </div>
@@ -438,7 +438,7 @@ export const homeHtml = `
         </div>
         <div class="panel-body terminal-body">
           <pre><code id="cliCodeDisplay"><span class="comment"># start the MCP (guard mode: off, observe or enforce)</span>
-<span class="cmd-prefix">powershell</span> -ExecutionPolicy Bypass -File shoav-mcp\\MCP\\auto-browser\\scripts\\start-local.ps1 <span class="cmd-flag">-Port</span> 18500 <span class="cmd-flag">-Background</span> <span class="cmd-flag">-Guard</span> enforce
+<span class="cmd-prefix">powershell</span> -ExecutionPolicy Bypass -File server\\scripts\\start-local.ps1 <span class="cmd-flag">-Port</span> 18500 <span class="cmd-flag">-Background</span> <span class="cmd-flag">-Guard</span> enforce
 
 <span class="comment"># then point agy at it</span>
 <span class="cmd-prefix">agy</span> mcp add <span class="cmd-flag">--type</span> http auto-browser <span class="cmd-url">http://127.0.0.1:18500/mcp</span></code></pre>

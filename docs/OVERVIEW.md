@@ -37,15 +37,15 @@ suspicion, never clear it.
 ### Features
 
 - **Browser MCP with the guard wired in.** A reworked [Auto Browser](https://github.com/LvcidPsyche/auto-browser) in
-  `shoav-mcp/MCP/`, running natively (no Docker) with a visible Chromium. The guard sits in the tool gateway behind
+  `server/`, running natively (no Docker) with a visible Chromium. The guard sits in the tool gateway behind
   `SHOAV_GUARD_MODE=off|observe|enforce`.
 - **Four traps covered:** hidden text, invisible overlay, pre-checked consent, context flooding. Measured on synthetic pages:
-  enforce 27/27, observe 17/17, off 22/22 checks (see `shoav-mcp/MCP/REPORT.md`).
+  enforce 27/27, observe 17/17, off 22/22 checks (see `docs/integration/REPORT.md`).
 - **Live view.** A per-session page streaming tool calls, screenshots and guard badges over Server-Sent Events, with a
   read-only archive afterwards.
-- **Skill package.** `shoav-skill`, a portable defence manual with audit scripts (hit testing, WCAG contrast, form audit,
-  confirmshaming text normalization) and an `npx` installer for Claude Code, Cursor and Antigravity CLI.
-- **CLI** for humans: session creation, status and event listing.
+- **Skill package.** `skill/`, a portable defence manual with audit scripts (hit testing, WCAG contrast, form audit,
+  confirmshaming text normalization), installed by the `shoav` CLI (`--what skill`).
+- **`shoav` CLI.** Installs the skill and MCP config into a project for Claude Code, OpenCode, agy, Codex or Cursor, and starts, stops and inspects the server.
 
 ## 3. Architecture and stack
 
@@ -63,12 +63,12 @@ Verdicts are ALLOW, REWRITE, ESCALATE and BLOCK.
 
 **Stack:**
 
-- Guard core: Python standard library only, pure functions over plain data (`shoav-mcp/filters/`).
+- Guard core: Python standard library only, pure functions over plain data (`guard/filters/`).
 - MCP server: Python 3.11+, FastAPI, MCP over HTTP, on port 18500 by default.
 - Browser: Playwright and Chromium.
 - Live view: Next.js, TypeScript and Tailwind, on port 3200.
 - State: SQLite, all local.
-- Skill: Node.js installer and Python audit scripts.
+- Skill: Markdown manual with Node and Python audit scripts. CLI: Node.js.
 - Reference test client: agy (Antigravity CLI). Other MCP clients are on the roadmap.
 
 ## 4. Status and roadmap
@@ -84,8 +84,8 @@ Next:
 - Tune thresholds on real page traffic
 - ESCALATE instead of BLOCK for legitimate modals
 - Measure more agent clients (Claude Code, OpenCode)
-- Rename the server identity from `auto-browser` to `shoav`
-- Publish the skill package to npm
+- Ship the `shoav` CLI (in development)
+- Publish the CLI and skill package to npm
 - Evaluate against public agent benchmarks such as [TrickyArena](https://agenttrickydps.vercel.app)
 
 Out of scope for now: language-level tricks such as fake urgency (the skill covers advice on these), text inside images, and
