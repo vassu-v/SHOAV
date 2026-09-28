@@ -34,6 +34,7 @@ export function agentsBlock({ url, guard }) {
     'Give the user this link when a session starts.',
     '',
     'If the tools are missing or failing, run `shoav status` to check the server and `shoav start` to start it.',
+    'For the full loop, argument shapes, recipes and troubleshooting, load the `shoav-guide` skill.',
     END,
   ];
   return lines.join('\n');

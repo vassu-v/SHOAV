@@ -88,7 +88,8 @@ test('merges into existing JSON and keeps unrelated keys', async (tt) => {
   assert.equal(o.theme, 'dark');
   assert.equal(o.mcp.shoav.url, URL);
   assert.match(r.stdout, /updated\s+\.mcp\.json/);
-  assert.ok(!fs.existsSync(path.join(t.project, '.claude', 'skills')), '--what mcp installs no skill');
+  assert.ok(fs.existsSync(path.join(t.project, '.claude', 'skills', 'shoav-guide', 'SKILL.md')), '--what mcp installs the guide');
+  assert.ok(!fs.existsSync(path.join(t.project, '.claude', 'skills', 'shoav')), '--what mcp does not install the defence skill');
 });
 
 test('invalid JSON is left untouched and reported', async (tt) => {
@@ -197,6 +198,10 @@ test('--what skill only copies skills, no configs', async (tt) => {
   assert.ok(!fs.existsSync(path.join(t.project, 'AGENTS.md')));
   assert.ok(fs.existsSync(path.join(t.project, '.cursor', 'rules', 'shoav.mdc')));
   assert.ok(fs.existsSync(path.join(t.project, '.claude', 'skills', 'shoav', 'SKILL.md')));
+  assert.ok(fs.existsSync(path.join(t.project, '.claude', 'skills', 'shoav-guide', 'SKILL.md')), '--what skill installs both skills');
+  const rule = fs.readFileSync(path.join(t.project, '.cursor', 'rules', 'shoav.mdc'), 'utf8');
+  assert.match(rule, /@\.cursor\/skills\/shoav-guide\/SKILL\.md/);
+  assert.match(rule, /@\.cursor\/skills\/shoav\/SKILL\.md/);
 });
 
 test('changed skill source file is updated, extra user files are kept', async (tt) => {
@@ -222,5 +227,91 @@ test('non-interactive install without --agent fails with a hint; bad url rejecte
   const r2 = await runCli(['install', '--agent', 'claude', '--dir', t.project, '--url', 'ftp://x/mcp', '--yes'], t.env);
   assert.equal(r2.code, 2);
   assert.match(r2.stderr, /invalid --url/);
+  assert.deepEqual(fs.readdirSync(t.project), []);
+});
+
+// Skill folders each agent reads, per scope. Both skills must land in each one.
+const PROJECT_SKILL_ROOTS = {
+  claude: ['.claude', 'skills'],
+  opencode: ['.opencode', 'skills'],
+  agy: ['.agents', 'skills'],
+  codex: ['.agents', 'skills'],
+  cursor: ['.cursor', 'skills'],
+  generic: ['skills'],
+};
+
+function expectSkill(root, name, { withScripts, withReferences }) {
+  const dir = path.join(root, name);
+  assert.ok(fs.existsSync(path.join(dir, 'SKILL.md')), `${dir}/SKILL.md`);
+  assert.ok(!fs.existsSync(path.join(dir, 'README.md')), `${dir}: README.md is not copied`);
+  if (withScripts) assert.ok(fs.existsSync(path.join(dir, 'scripts', 'semantic_normalizer.py')), `${dir}/scripts`);
+  if (withReferences) {
+    assert.ok(fs.existsSync(path.join(dir, 'references', 'tools.md')), `${dir}/references/tools.md`);
+    assert.ok(fs.existsSync(path.join(dir, 'references', 'recipes.md')), `${dir}/references/recipes.md`);
+  }
+}
+
+test('both skills land under every project convention, with the right names', async (tt) => {
+  const t = tempEnv();
+  tt.after(t.cleanup);
+  const r = await install(t);
+  assert.equal(r.code, 0, r.stderr);
+  for (const [agent, rel] of Object.entries(PROJECT_SKILL_ROOTS)) {
+    const root = path.join(t.project, ...rel);
+    expectSkill(root, 'shoav', { withScripts: true });
+    expectSkill(root, 'shoav-guide', { withReferences: true });
+    assert.match(fs.readFileSync(path.join(root, 'shoav', 'SKILL.md'), 'utf8'), /^name: shoav\s*$/m, agent);
+    assert.match(fs.readFileSync(path.join(root, 'shoav-guide', 'SKILL.md'), 'utf8'), /^name: shoav-guide\s*$/m, agent);
+  }
+  const rule = fs.readFileSync(path.join(t.project, '.cursor', 'rules', 'shoav.mdc'), 'utf8');
+  assert.match(rule, /shoav-guide\/SKILL\.md/);
+  assert.match(fs.readFileSync(path.join(t.project, 'AGENTS.md'), 'utf8'), /`shoav-guide` skill/);
+});
+
+test('--what mcp installs the guide (not the defence skill) for every agent', async (tt) => {
+  const t = tempEnv();
+  tt.after(t.cleanup);
+  const r = await runCli(['install', '--what', 'mcp', '--agent', ALL, '--dir', t.project, '--yes'], t.env);
+  assert.equal(r.code, 0, r.stderr);
+  for (const rel of Object.values(PROJECT_SKILL_ROOTS)) {
+    const root = path.join(t.project, ...rel);
+    expectSkill(root, 'shoav-guide', { withReferences: true });
+    assert.ok(!fs.existsSync(path.join(root, 'shoav')), `${root}/shoav must not exist for --what mcp`);
+  }
+  const rule = fs.readFileSync(path.join(t.project, '.cursor', 'rules', 'shoav.mdc'), 'utf8');
+  assert.match(rule, /shoav-guide\/SKILL\.md/);
+  assert.doesNotMatch(rule, /@\.cursor\/skills\/shoav\/SKILL\.md/);
+});
+
+test('user scope puts both skills under each home convention and stays idempotent', async (tt) => {
+  const t = tempEnv();
+  tt.after(t.cleanup);
+  const args = ['install', '--scope', 'user', '--what', 'both', '--agent', ALL, '--yes'];
+  const r = await runCli(args, t.env, { cwd: t.project });
+  assert.equal(r.code, 0, r.stderr);
+  const roots = [
+    ['.claude', 'skills'], ['.config', 'opencode', 'skills'], ['.gemini', 'config', 'skills'],
+    ['.codex', 'skills'], ['.cursor', 'skills'], ['.shoav', 'skills'],
+  ];
+  for (const rel of roots) {
+    const root = path.join(t.home, ...rel);
+    expectSkill(root, 'shoav', { withScripts: true });
+    expectSkill(root, 'shoav-guide', { withReferences: true });
+  }
+  const first = snapshot(t.root);
+  const r2 = await runCli(args, t.env, { cwd: t.project });
+  assert.equal(r2.code, 0);
+  assert.deepEqual(snapshot(t.root), first);
+  assert.doesNotMatch(r2.stdout, /\b(created|updated)\b/);
+});
+
+test('dry run lists both skills', async (tt) => {
+  const t = tempEnv();
+  tt.after(t.cleanup);
+  const r = await runCli(['install', '--what', 'both', '--agent', 'claude', '--dir', t.project, '--yes', '--dry-run'], t.env);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /would create\s+\.claude\/skills\/shoav\/SKILL\.md/);
+  assert.match(r.stdout, /would create\s+\.claude\/skills\/shoav-guide\/SKILL\.md/);
+  assert.match(r.stdout, /would create\s+\.claude\/skills\/shoav-guide\/references\/tools\.md/);
   assert.deepEqual(fs.readdirSync(t.project), []);
 });

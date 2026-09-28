@@ -4,7 +4,7 @@ export const HELP = {
 Usage: shoav [command] [flags]
 
 Commands:
-  install            guided install of the MCP config and/or agent skill (default)
+  install            guided install of the MCP config and/or agent skills (default)
   start              start the guarded browser server in the background
   stop               stop what shoav start launched
   status             show server health, guard mode, verdict counters, sessions
@@ -23,12 +23,14 @@ Examples:
 `,
   install: `Usage: shoav [install] [flags]
 
-Writes MCP client config and/or the SHOAV agent skill for your agents.
+Writes MCP client config and/or the SHOAV agent skills for your agents:
+shoav-guide (how to drive the MCP) and shoav (the defence skill).
 Existing JSON files are merged (other keys kept); invalid JSON is never touched.
 Running it twice changes nothing. Nothing is ever deleted.
 
 Flags:
-  --what skill|mcp|both     what to install (default both, recommended)
+  --what skill|mcp|both     skill: both skills; mcp: MCP config + guide skill;
+                            both: everything (default, recommended)
   --agent <list>            comma list of: claude, opencode, agy, codex, cursor, generic
                             (prompted when omitted in a terminal)
   --scope project|user      project writes under --dir, user under your home (default project)

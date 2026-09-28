@@ -1,6 +1,8 @@
 #!/bin/sh
 # Runs every SHOAV skill script on built-in sample data. Exit 0 = all good, non-zero = a check failed.
-# Usage: sh selftest.sh   (needs node and python3 or python on PATH)
+# Usage: sh skills/defense/scripts/selftest.sh from the repo, or sh scripts/selftest.sh inside an
+# installed copy (for example .claude/skills/shoav). Paths resolve from this file, so any cwd works.
+# Needs node and python3 or python on PATH.
 DIR=$(cd "$(dirname "$0")" && pwd)
 PY=$(command -v python3 || command -v python) || { echo "FAIL: python not found"; exit 1; }
 command -v node >/dev/null || { echo "FAIL: node not found"; exit 1; }

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { agentsBlock, ensureImportLine, upsertBlock } from './agents-block.js';
 import { listFiles, planCopy, planEdit, planJson, planText } from './fsplan.js';
-import { SKILL_SRC, shoavHome, userHome, xdgConfigHome } from './paths.js';
+import { DEFENSE_SKILL, GUIDE_SKILL, shoavHome, userHome, xdgConfigHome } from './paths.js';
 
 export const AGENT_LABELS = {
   claude: 'Claude Code',
@@ -15,15 +15,29 @@ export const AGENT_LABELS = {
   generic: 'Other agent (AGENTS.md + printed snippet)',
 };
 
-// Folder name the old npx installer used for Antigravity user skills; kept.
-export const AGY_USER_SKILL_DIR = 'shoav';
-
-export function skillFiles(src = SKILL_SRC) {
-  return listFiles(src).filter((f) => f === 'SKILL.md' || f.startsWith(`scripts${path.sep}`));
+// What gets copied from a skill folder: SKILL.md plus scripts/ and references/.
+// README.md and other repo-only files stay behind.
+export function skillFiles(src) {
+  return listFiles(src).filter((f) => f === 'SKILL.md'
+    || f.startsWith(`scripts${path.sep}`) || f.startsWith(`references${path.sep}`));
 }
 
-function planSkill(destDir, note) {
-  return skillFiles().map((rel) => planCopy(path.join(SKILL_SRC, rel), path.join(destDir, rel), note));
+// Which skills a --what selection installs. The guide ships with the MCP config
+// (it explains how to drive it); the defence skill ships with --what skill|both.
+export function skillsFor(what) {
+  return [...(what !== 'mcp' ? [DEFENSE_SKILL] : []), GUIDE_SKILL];
+}
+
+// Copy each selected skill into <skillsRoot>/<installed name>/.
+function planSkills(skillsRoot, skills, note) {
+  const out = [];
+  for (const sk of skills) {
+    const dest = path.join(skillsRoot, sk.name);
+    for (const rel of skillFiles(sk.src)) {
+      out.push(planCopy(path.join(sk.src, rel), path.join(dest, rel), `${note} (${sk.name})`));
+    }
+  }
+  return out;
 }
 
 function planBlock(file, ctx, note) {
@@ -43,17 +57,21 @@ export function codexTomlBlock(url) {
   return `[mcp_servers.shoav]\nurl = "${url}"\n`;
 }
 
-function cursorRule(mcp) {
+function cursorRule(mcp, skills) {
+  const has = (id) => skills.some((s) => s.id === id);
   return [
     '---',
-    'description: S.H.O.A.V. agent skill. Use when browsing the web, filling forms or checking out, to spot and avoid dark patterns and hostile page content.',
+    'description: S.H.O.A.V. skills. Use when browsing the web, filling forms or checking out, to drive the guarded SHOAV browser and to spot and avoid dark patterns and hostile page content.',
     'alwaysApply: false',
     '---',
     '',
     'Added by `shoav install`.',
     '',
-    'Before acting on web pages, read and follow the S.H.O.A.V. skill: @.cursor/skills/shoav/SKILL.md',
-    'Its helper scripts in `.cursor/skills/shoav/scripts/` are a last-resort fallback only.',
+    ...(has('guide') ? ['How to start and drive the SHOAV browser MCP: @.cursor/skills/shoav-guide/SKILL.md'] : []),
+    ...(has('defense') ? [
+      'Before acting on web pages, read and follow the S.H.O.A.V. defence skill: @.cursor/skills/shoav/SKILL.md',
+      'Its helper scripts in `.cursor/skills/shoav/scripts/` are a last-resort fallback only.',
+    ] : []),
     ...(mcp ? ['', 'Browse with the `shoav` MCP tools (see the "Browsing with SHOAV" section of AGENTS.md).'] : []),
     '',
   ].join('\n');
@@ -62,7 +80,8 @@ function cursorRule(mcp) {
 export function planAgent(agent, ctx) {
   const { what, scope, dir, url, env } = ctx;
   const mcp = what !== 'skill';
-  const skill = what !== 'mcp';
+  const skills = skillsFor(what);
+  const skill = skills.length > 0;
   const user = scope === 'user';
   const home = userHome(env);
   const actions = [];
@@ -85,7 +104,7 @@ export function planAgent(agent, ctx) {
         notes.push(`${tag}: ~/.claude.json belongs to Claude Code and is not edited. Register the server with:\n    claude mcp add --transport http --scope user shoav ${url}`);
         actions.push(planBlock(path.join(home, '.claude', 'CLAUDE.md'), ctx, tag));
       }
-      if (skill) actions.push(...planSkill(path.join(user ? home : dir, '.claude', 'skills', 'shoav'), `${tag} skill`));
+      if (skill) actions.push(...planSkills(path.join(user ? home : dir, '.claude', 'skills'), skills, `${tag} skill`));
       break;
     }
     case 'opencode': {
@@ -97,7 +116,7 @@ export function planAgent(agent, ctx) {
         }), tag));
         actions.push(planBlock(user ? path.join(base, 'AGENTS.md') : agentsMd, ctx, tag));
       }
-      if (skill) actions.push(...planSkill(user ? path.join(base, 'skills', 'shoav') : path.join(dir, '.opencode', 'skills', 'shoav'), `${tag} skill`));
+      if (skill) actions.push(...planSkills(user ? path.join(base, 'skills') : path.join(dir, '.opencode', 'skills'), skills, `${tag} skill`));
       break;
     }
     case 'agy': {
@@ -107,7 +126,7 @@ export function planAgent(agent, ctx) {
         actions.push(planBlock(user ? path.join(home, '.gemini', 'GEMINI.md') : agentsMd, ctx, tag));
         notes.push(`${tag}: agy rejects dotted tool names; \`shoav start\` runs the server with MCP_TOOL_NAME_STYLE=underscore so tools appear as browser_*.`);
       }
-      if (skill) actions.push(...planSkill(path.join(base, 'skills', user ? AGY_USER_SKILL_DIR : 'shoav'), `${tag} skill`));
+      if (skill) actions.push(...planSkills(path.join(base, 'skills'), skills, `${tag} skill`));
       break;
     }
     case 'codex': {
@@ -128,7 +147,7 @@ export function planAgent(agent, ctx) {
         }
         actions.push(planBlock(path.join(chome, 'AGENTS.md'), ctx, tag));
       }
-      if (skill) actions.push(...planSkill(user ? path.join(codexHome(env), 'skills', 'shoav') : path.join(dir, '.agents', 'skills', 'shoav'), `${tag} skill`));
+      if (skill) actions.push(...planSkills(user ? path.join(codexHome(env), 'skills') : path.join(dir, '.agents', 'skills'), skills, `${tag} skill`));
       break;
     }
     case 'cursor': {
@@ -139,8 +158,8 @@ export function planAgent(agent, ctx) {
         else notes.push(`${tag}: user-level rules live in Cursor Settings > Rules. Paste the "Browsing with SHOAV" text from a project AGENTS.md there if you want it everywhere.`);
       }
       if (skill) {
-        actions.push(...planSkill(path.join(base, 'skills', 'shoav'), `${tag} skill`));
-        if (!user) actions.push(planText(path.join(base, 'rules', 'shoav.mdc'), cursorRule(mcp), `${tag} rule`));
+        actions.push(...planSkills(path.join(base, 'skills'), skills, `${tag} skill`));
+        if (!user) actions.push(planText(path.join(base, 'rules', 'shoav.mdc'), cursorRule(mcp, skills), `${tag} rule`));
       }
       break;
     }
@@ -149,7 +168,7 @@ export function planAgent(agent, ctx) {
         if (!user) actions.push(planBlock(agentsMd, ctx, tag));
         notes.push(`Other agents: add this MCP server to your client's config (key names vary by client):\n${genericSnippet(url).replace(/^/gm, '    ')}`);
       }
-      if (skill) actions.push(...planSkill(user ? path.join(shoavHome(env), 'skills', 'shoav') : path.join(dir, 'skills', 'shoav'), `${tag} skill`));
+      if (skill) actions.push(...planSkills(user ? path.join(shoavHome(env), 'skills') : path.join(dir, 'skills'), skills, `${tag} skill`));
       break;
     }
     default:

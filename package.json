@@ -12,7 +12,7 @@
     "cli/README.md",
     "server",
     "guard",
-    "skill",
+    "skills",
     "e2e/fixtures",
     "README.md",
     "!**/node_modules",

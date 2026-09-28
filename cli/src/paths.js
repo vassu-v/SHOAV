@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const SKILL_SRC = path.join(PKG_ROOT, 'skill');
+export const SKILLS_DIR = path.join(PKG_ROOT, 'skills');
+// Source folder -> installed folder name. The defence skill keeps the name `shoav`.
+export const DEFENSE_SKILL = { id: 'defense', src: path.join(SKILLS_DIR, 'defense'), name: 'shoav' };
+export const GUIDE_SKILL = { id: 'guide', src: path.join(SKILLS_DIR, 'guide'), name: 'shoav-guide' };
 export const SERVER_DIR = path.join(PKG_ROOT, 'server');
 export const CONTROLLER_DIR = path.join(SERVER_DIR, 'controller');
 export const LIVE_UI_DIR = path.join(SERVER_DIR, 'live-ui');

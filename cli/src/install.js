@@ -72,9 +72,9 @@ export async function runInstall(parsed, { env = process.env, isTTY = Boolean(pr
   if (!opts.what) {
     opts.what = interactive
       ? await choose('What should be installed?', [
-        { value: 'both', label: 'MCP server config + agent skill (Recommended)' },
-        { value: 'mcp', label: 'MCP server config only' },
-        { value: 'skill', label: 'Agent skill only' },
+        { value: 'both', label: 'MCP server config + both skills (guide and defence) (Recommended)' },
+        { value: 'mcp', label: 'MCP server config + guide skill' },
+        { value: 'skill', label: 'Skills only (guide and defence), no MCP config' },
       ], 0)
       : 'both';
   }
@@ -85,7 +85,7 @@ export async function runInstall(parsed, { env = process.env, isTTY = Boolean(pr
     opts.agents = await chooseMany('Which agents do you use?', AGENTS.map((a) => ({ value: a, label: a === 'codex' ? 'Codex CLI (best effort)' : AGENT_LABELS[a] })));
   }
 
-  log.info(`${c.bold('Install')}: ${opts.what === 'both' ? 'MCP config + skill' : opts.what}  ${c.bold('agents')}: ${opts.agents.join(', ')}  ${c.bold('scope')}: ${opts.scope}`);
+  log.info(`${c.bold('Install')}: ${({ both: 'MCP config + guide and defence skills', mcp: 'MCP config + guide skill', skill: 'guide and defence skills' })[opts.what]}  ${c.bold('agents')}: ${opts.agents.join(', ')}  ${c.bold('scope')}: ${opts.scope}`);
   log.info(`${c.bold('Target')}: ${opts.scope === 'project' ? opts.dir : userHome(env)}  ${c.bold('MCP url')}: ${opts.url}  ${c.bold('guard')}: ${opts.guard}`);
   if (opts.dryRun) log.info(c.yellow('Dry run: nothing will be written.'));
   log.info();
@@ -117,7 +117,7 @@ export async function runInstall(parsed, { env = process.env, isTTY = Boolean(pr
     log.info('  3. shoav open             open the live view to watch the agent browse');
     log.info('  Restart your agent so it picks up the new MCP config.');
   } else {
-    log.info('  Restart your agent so it loads the skill.');
+    log.info('  Restart your agent so it loads the skills.');
   }
   return summary.manual ? 3 : 0;
 }

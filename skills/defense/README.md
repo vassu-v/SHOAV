@@ -56,7 +56,8 @@ node cli/bin/shoav.js install --what skill --agent claude
 Flags: `--scope project|user` (project folder or your home folder), `--dir <path>` (custom
 destination), `--dry-run` (show what would be written), `--yes` (skip prompts).
 
-Manual fallback: copy this `skill/` folder to the place your agent reads skills from.
+Manual fallback: copy this `skills/defense/` folder, renamed to `shoav`, to the place your agent reads skills from.
+The installer also adds the `shoav-guide` skill (`skills/guide/`) next to it; see [`../README.md`](../README.md).
 
 | Agent | Destination |
 | :--- | :--- |
@@ -68,11 +69,11 @@ Manual fallback: copy this `skill/` folder to the place your agent reads skills 
 
 ```bash
 # macOS / Linux
-mkdir -p .claude/skills && cp -r skill .claude/skills/shoav
+mkdir -p .claude/skills && cp -r skills/defense .claude/skills/shoav
 ```
 ```powershell
 # Windows PowerShell
-New-Item -ItemType Directory -Force .claude\skills | Out-Null; Copy-Item -Recurse skill .claude\skills\shoav
+New-Item -ItemType Directory -Force .claude\skills | Out-Null; Copy-Item -Recurse skills\defense .claude\skills\shoav
 ```
 
 Copy the whole folder, not just `SKILL.md`, so `scripts/` comes along. Check the copy with

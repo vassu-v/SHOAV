@@ -1,7 +1,7 @@
 # shoav CLI
 
 Installer and runner for S.H.O.A.V. (AI Bodyguard for agents that browse). One
-Node command, no runtime dependencies. It writes your agent's MCP config and skill,
+Node command, no runtime dependencies. It writes your agent's MCP config and skills,
 and starts, stops and inspects the guarded browser server.
 
 ## Requirements
@@ -30,7 +30,7 @@ shoav <command> --help
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--what skill\|mcp\|both` | `both` | MCP config, agent skill, or both (recommended) |
+| `--what skill\|mcp\|both` | `both` | `skill`: both skills, no MCP config. `mcp`: MCP config, AGENTS.md block and the guide skill. `both`: everything (recommended) |
 | `--agent <list>` | prompt | `claude,opencode,agy,codex,cursor,generic`; required when not in a terminal |
 | `--scope project\|user` | `project` | write under `--dir` or under your home dir |
 | `--dir <path>` | current dir | project root |
@@ -56,14 +56,21 @@ With `--what mcp` or `both`, a "Browsing with SHOAV" block is also added to
 
 | Agent | Project scope (`--dir`) | User scope (home) |
 |---|---|---|
-| claude | `.mcp.json`, `.claude/settings.json` (allows `mcp__shoav`), `AGENTS.md`, `CLAUDE.md` with `@AGENTS.md`, skill in `.claude/skills/shoav/` | prints `claude mcp add --transport http --scope user shoav <url>` (never edits `~/.claude.json`), block in `~/.claude/CLAUDE.md`, skill in `~/.claude/skills/shoav/` |
-| opencode | `opencode.json` (`mcp.shoav`, type remote), `AGENTS.md`, skill in `.opencode/skills/shoav/` | `~/.config/opencode/opencode.json`, `AGENTS.md` and `skills/shoav/` there |
-| agy | `.agents/mcp_config.json`, `AGENTS.md`, skill in `.agents/skills/shoav/` | `~/.gemini/config/mcp_config.json`, block in `~/.gemini/GEMINI.md`, skill in `~/.gemini/config/skills/SHOAV_SKILLforAGENTS/` |
-| codex (best effort) | `AGENTS.md`, prints `codex mcp add shoav --url <url>`, skill in `.agents/skills/shoav/` | writes `~/.codex/config.toml` only if it does not exist (else prints the block), `~/.codex/AGENTS.md`, skill in `~/.codex/skills/shoav/` |
-| cursor | `.cursor/mcp.json`, `AGENTS.md`, skill in `.cursor/skills/shoav/`, rule `.cursor/rules/shoav.mdc` | `~/.cursor/mcp.json`, skill in `~/.cursor/skills/shoav/` |
-| generic | `AGENTS.md`, printed JSON snippet, skill in `skills/shoav/` | printed snippet, skill in `~/.shoav/skills/shoav/` |
+| claude | `.mcp.json`, `.claude/settings.json` (allows `mcp__shoav`), `AGENTS.md`, `CLAUDE.md` with `@AGENTS.md`, skills in `.claude/skills/` | prints `claude mcp add --transport http --scope user shoav <url>` (never edits `~/.claude.json`), block in `~/.claude/CLAUDE.md`, skills in `~/.claude/skills/` |
+| opencode | `opencode.json` (`mcp.shoav`, type remote), `AGENTS.md`, skills in `.opencode/skills/` | `~/.config/opencode/opencode.json`, `AGENTS.md` and `skills/` there |
+| agy | `.agents/mcp_config.json`, `AGENTS.md`, skills in `.agents/skills/` | `~/.gemini/config/mcp_config.json`, block in `~/.gemini/GEMINI.md`, skills in `~/.gemini/config/skills/` |
+| codex (best effort) | `AGENTS.md`, prints `codex mcp add shoav --url <url>`, skills in `.agents/skills/` | writes `~/.codex/config.toml` only if it does not exist (else prints the block), `~/.codex/AGENTS.md`, skills in `~/.codex/skills/` |
+| cursor | `.cursor/mcp.json`, `AGENTS.md`, skills in `.cursor/skills/`, rule `.cursor/rules/shoav.mdc` | `~/.cursor/mcp.json`, skills in `~/.cursor/skills/` |
+| generic | `AGENTS.md`, printed JSON snippet, skills in `skills/` | printed snippet, skills in `~/.shoav/skills/` |
 
-The skill copy is `skill/SKILL.md` plus `skill/scripts/`.
+"skills in `<dir>`" means two folders inside it:
+
+| Installed folder | Source | Copied files | Installed by |
+|---|---|---|---|
+| `shoav-guide/` | `skills/guide/` | `SKILL.md`, `references/` | `--what mcp`, `skill` and `both` |
+| `shoav/` | `skills/defense/` | `SKILL.md`, `scripts/` | `--what skill` and `both` |
+
+`README.md` files are not copied. See [`../skills/README.md`](../skills/README.md).
 
 ## Where things live
 
