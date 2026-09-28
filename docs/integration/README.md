@@ -22,6 +22,6 @@ Old path to current path:
 | `shoav-mcp/fixtures` | `e2e/fixtures/` |
 | `shoav-mcp/MCP/agent-template` | removed, replaced by `AGENTS.md` and `e2e/ACCEPTANCE.md` |
 | `shoav-mcp/MCP/mcp-test` | `e2e/claude-harness/` |
-| `shoav-skill/skill` | `skill/` |
+| `shoav-skill/skill` | `skills/defense/` (was `skill/` until the skills split) |
 
 The MCP server key was `auto-browser` at the time and is now `shoav`. Tool names are unchanged (`browser_*`).

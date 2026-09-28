@@ -154,9 +154,9 @@ The full report is [`integration/REPORT.md`](integration/REPORT.md).
 | `guard/filters/` | Deterministic ingress and egress rules, probes, session state, tests |
 | `guard/connectors/` | Payload adapters between the MCP and the filters |
 | `server/` | The browser MCP server, live UI and start scripts |
-| `cli/` | The `shoav` installer and runner, agent doc templates |
+| `cli/` | The `shoav` installer and runner |
 | `e2e/fixtures/` | Tiny synthetic pages for unit and end-to-end tests |
-| `skill/` | The agent skill and its audit scripts |
+| `skills/` | The agent skills: `defense/` (defence manual and audit scripts) and `guide/` (how to drive the MCP) |
 | `docs/integration/` | The integration plan and measured report (historical) |
 | `web/` | The project website |
 | `docs/research/` | Evidence base |

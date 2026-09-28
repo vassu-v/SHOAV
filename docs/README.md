@@ -14,4 +14,4 @@ Current how-to docs live elsewhere:
 - [`../server/SHOAV.md`](../server/SHOAV.md): the SHOAV server
 - [`../guard/README.md`](../guard/README.md): the guard
 - [`../e2e/README.md`](../e2e/README.md): the synthetic pages and check runner
-- [`../skill/README.md`](../skill/README.md): the skill
+- [`../skills/README.md`](../skills/README.md): the two agent skills (`shoav-guide` for driving the MCP, `shoav` for defence advice)

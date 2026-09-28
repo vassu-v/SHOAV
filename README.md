@@ -22,7 +22,7 @@
 
 <a href="docs/DESIGN.md">Design</a> &nbsp;·&nbsp;
 <a href="AGENTS.md">Connect an agent</a> &nbsp;·&nbsp;
-<a href="skill/README.md">Skill</a> &nbsp;·&nbsp;
+<a href="skills/README.md">Skills</a> &nbsp;·&nbsp;
 <a href="docs/research/">Research</a>
 
 <br>
@@ -80,7 +80,7 @@ pointed at the server's URL.
 |---|---|---|
 | [`server/`](server/SHOAV.md) | The SHOAV MCP server: a reworked Auto Browser with a real Chromium, a live view and the guard in the path | Anyone who wants enforcement |
 | [`guard/`](guard/README.md) | The deterministic filters (`filters/`) and the adapters that connect them to the server (`connectors/`) | Contributors, and anyone auditing the rules |
-| [`skill/`](skill/README.md) | The defence manual and audit scripts for agents that keep their own browser. Advice only | Agents with their own browser |
+| [`skills/`](skills/README.md) | Two agent skills: `guide/` teaches an agent (and you) how to start and drive the MCP; `defense/` is the defence manual and audit scripts for agents that keep their own browser (advice only) | Every agent that uses the MCP (guide); agents with their own browser (defence) |
 | [`cli/`](cli/README.md) | The `shoav` installer and runner: writes agent config, starts and stops the server | Everyone, it is the easy path |
 | [`e2e/`](e2e/README.md) | Synthetic attack and benign pages, and the runner that checks off, observe and enforce | Contributors, and anyone verifying an install |
 | [`docs/`](docs/README.md) | Design notes, overview, the integration report and the research | Readers who want the evidence |
@@ -237,7 +237,7 @@ and the synthetic pages plus the check runner in [`e2e/README.md`](e2e/README.md
 |------|-------|
 | Guard `guard/` | Done. Tested, JS probes verified in a real browser. |
 | Server `server/` | Working natively with a live view. Guard hooked into the gateway. |
-| Skill `skill/` | Done. Portable manual and audit scripts. |
+| Skills `skills/` | Defence skill done (manual and audit scripts). Guide skill added (how to drive the MCP, tested recipes). |
 | CLI `cli/` | In development. |
 | Status | Alpha, under active development. |
 

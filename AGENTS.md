@@ -8,7 +8,9 @@ OpenCode, Antigravity CLI `agy`, Codex, Cursor, others).
 
 - **MCP** (`--what mcp`): a real Chromium the agent drives through `browser_*` tools, with the guard rewriting or blocking
   hostile content on the way in and unsafe clicks and submits on the way out. A live view lets you watch every session.
-- **Skill** (`--what skill`): a defence manual and audit scripts. Advice only, nothing is enforced.
+  Also installs the `shoav-guide` skill, which teaches the agent how to start and drive the MCP.
+- **Skills** (`--what skill`): the `shoav` defence skill (a defence manual and audit scripts, advice only, nothing is
+  enforced) plus the `shoav-guide` skill. No MCP config.
 - **Both** (default, recommended): enforcement plus advice for the wording tricks a structural check cannot see.
 
 ## 60 second setup
@@ -52,11 +54,11 @@ get SHOAV, and nothing global is touched. Files created per agent:
 
 | Agent | Files |
 |---|---|
-| Claude Code | `.mcp.json`, `.claude/settings.json` (allow rule `mcp__shoav`), `CLAUDE.md` containing `@AGENTS.md`, skill in `.claude/skills/shoav` |
-| OpenCode | `opencode.json` |
-| agy | `.agents/mcp_config.json`, skill in `.agents/skills/shoav` |
+| Claude Code | `.mcp.json`, `.claude/settings.json` (allow rule `mcp__shoav`), `CLAUDE.md` containing `@AGENTS.md`, skills in `.claude/skills/shoav-guide` and `.claude/skills/shoav` |
+| OpenCode | `opencode.json`, skills in `.opencode/skills/` |
+| agy | `.agents/mcp_config.json`, skills in `.agents/skills/shoav-guide` and `.agents/skills/shoav` |
 | Codex | `AGENTS.md`, plus a printed `codex mcp add shoav --url ...` command to run yourself (best effort, depends on your Codex version) |
-| Cursor | `.cursor/mcp.json` and a rule file |
+| Cursor | `.cursor/mcp.json`, skills in `.cursor/skills/`, and a rule file |
 | generic | `AGENTS.md` and a JSON snippet to paste into your client |
 
 For the MCP part the installer also appends an idempotent "Browsing with SHOAV" block to the project's `AGENTS.md`. It tells
@@ -173,7 +175,8 @@ codex mcp add shoav --url http://127.0.0.1:18500/mcp
 ```
 
 Config file formats change between client versions. If one of these is rejected, check your client's MCP docs and use the
-same URL. To also install the skill by hand, copy the [`skill/`](skill/README.md) folder into the agent's skills directory.
+same URL. To also install the skills by hand, copy [`skills/guide/`](skills/guide/SKILL.md) as `shoav-guide` and
+[`skills/defense/`](skills/defense/README.md) as `shoav` into the agent's skills directory (see [`skills/README.md`](skills/README.md)).
 
 ## Linux and macOS
 
@@ -223,5 +226,5 @@ The last command serves the synthetic pages and prints a pass or fail line per c
 ## More
 
 - Measured results on synthetic pages: enforce 27/27, observe 17/17, off 22/22 checks ([`docs/integration/REPORT.md`](docs/integration/REPORT.md)). A real `agy` run confirmed hidden text stripped and the overlay click blocked. Only `agy` has been measured as a client.
-- Design and limits: [`docs/DESIGN.md`](docs/DESIGN.md). Server: [`server/SHOAV.md`](server/SHOAV.md). Guard: [`guard/README.md`](guard/README.md). Skill: [`skill/README.md`](skill/README.md).
+- Design and limits: [`docs/DESIGN.md`](docs/DESIGN.md). Server: [`server/SHOAV.md`](server/SHOAV.md). Guard: [`guard/README.md`](guard/README.md). Skills: [`skills/README.md`](skills/README.md).
 - The tool list and arguments come from the MCP itself (`tools/list`). Upstream docs and licence are in `server/` (`README.md`, `docs/`, `LICENSE`).

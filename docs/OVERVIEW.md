@@ -43,8 +43,9 @@ suspicion, never clear it.
   enforce 27/27, observe 17/17, off 22/22 checks (see `docs/integration/REPORT.md`).
 - **Live view.** A per-session page streaming tool calls, screenshots and guard badges over Server-Sent Events, with a
   read-only archive afterwards.
-- **Skill package.** `skill/`, a portable defence manual with audit scripts (hit testing, WCAG contrast, form audit,
-  confirmshaming text normalization), installed by the `shoav` CLI (`--what skill`).
+- **Skill package.** `skills/defense/`, a portable defence manual with audit scripts (hit testing, WCAG contrast, form audit,
+  confirmshaming text normalization), installed by the `shoav` CLI (`--what skill`). `skills/guide/`
+  teaches an agent how to start and drive the MCP, and is installed with the MCP config.
 - **`shoav` CLI.** Installs the skill and MCP config into a project for Claude Code, OpenCode, agy, Codex or Cursor, and starts, stops and inspects the server.
 
 ## 3. Architecture and stack
