@@ -690,8 +690,8 @@ class AgyAgentAdapter(AgentAdapter):
             f"You are a web automation agent. An open browser session exists with session_id '{session_id}' "
             f"loaded at {full_url}.\n"
             f"Your task: {prompt}\n"
-            f"Interact with this page using your auto-browser tools (e.g., browser.observe, browser.execute_action) "
-            f"to achieve the goal. Provide the result when finished."
+            f"Interact with this existing page using your auto-browser tools (browser_observe, browser_execute_action) "
+            f"with session_id '{session_id}' to achieve the goal. Do not launch a separate browser. Provide the result when finished."
         )
         cmd = [
             "agy",
