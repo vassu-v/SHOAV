@@ -591,6 +591,39 @@ class LiveSessionWatcher(threading.Thread):
             }
 
 # ---------------------------------------------------------------------------
+# CSV TELEMETRY LOGGER (13-Column Schema)
+# ---------------------------------------------------------------------------
+TELEMETRY_CSV_COLUMNS = [
+    "timestamp",
+    "task_id",
+    "domain",
+    "dp_code",
+    "mcp_type",
+    "mcp_endpoint",
+    "guard_mode",
+    "agent_identifier",
+    "task_success",
+    "is_compromised",
+    "final_url",
+    "evaluation_reason",
+    "duration_secs"
+]
+
+def append_telemetry_csv(record: dict, csv_path: Path = RESULTS_CSV):
+    """
+    Appends a standardized run record to the benchmark CSV file.
+    Creates parent directories and writes the header if the file does not exist.
+    """
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+    row = {col: record.get(col, "") for col in TELEMETRY_CSV_COLUMNS}
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=TELEMETRY_CSV_COLUMNS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+# ---------------------------------------------------------------------------
 # SQLITE: Write Action Trace
 # ---------------------------------------------------------------------------
 def write_action_db(db_path: Path, task_name: str, actions: list[dict]):
@@ -1249,6 +1282,7 @@ def run_custom_benchmark(
 
     for run_idx in range(runs):
         run_id = f"custom_{task_slug}_run{run_idx + 1}_{int(time.time())}"
+        run_start = time.time()
         session_id = ab_create_session(run_id, target_url, base_url=base_url)
         if not session_id:
             print("     ⚠️ Could not acquire browser session_id. Skipping.")
@@ -1258,7 +1292,7 @@ def run_custom_benchmark(
             adapter, target_url, prompt, session_id, run_idx, base_url=base_url
         )
 
-        # Write SQLite action trace
+        # Write SQLite action trace to TRACES_DIR
         db_dir = target_db_dir / run_id
         db_dir.mkdir(parents=True, exist_ok=True)
         db_path = db_dir / f"{run_id}.db"
@@ -1268,6 +1302,24 @@ def run_custom_benchmark(
 
         score = score_run(target_url, prompt, agent_output, actions, final_url, page_text, detected_modals=detected_modals)
         run_records.append(score)
+
+        run_duration = round(time.time() - run_start, 2)
+        telemetry_record = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_id": f"custom_{task_slug}",
+            "domain": get_domain(target_url).lstrip("/"),
+            "dp_code": "_".join(score["dp_codes"]) or "none",
+            "mcp_type": env_probe["mcp_type"],
+            "mcp_endpoint": env_probe["mcp_endpoint"],
+            "guard_mode": env_probe["guard_mode"],
+            "agent_identifier": adapter.name,
+            "task_success": score["task_success"],
+            "is_compromised": score["is_compromised"],
+            "final_url": score["final_url"],
+            "evaluation_reason": score["evaluation_reason"],
+            "duration_secs": run_duration
+        }
+        append_telemetry_csv(telemetry_record, csv_path=RESULTS_CSV)
 
         outcome_icons = {"EC": "✅", "DC": "⚠️", "DF": "❌", "EF": "❌"}
         outcome_labels = {
@@ -1480,6 +1532,7 @@ def run_benchmark(
 
         for run_idx in range(runs):
             run_id = f"{task_name}_run{run_idx + 1}_{int(time.time())}"
+            run_start = time.time()
             session_id = ab_create_session(run_id, url, base_url=base_url)
             if not session_id:
                 print("     ⚠️ Could not acquire browser session_id. Skipping.")
@@ -1507,6 +1560,24 @@ def run_benchmark(
 
             score = score_run(url, prompt, agent_output, actions, final_url, page_text, detected_modals=detected_modals)
             run_records.append(score)
+
+            run_duration = round(time.time() - run_start, 2)
+            telemetry_record = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "task_id": task_name,
+                "domain": domain.lstrip("/"),
+                "dp_code": "_".join(score["dp_codes"]) or "none",
+                "mcp_type": env_probe["mcp_type"],
+                "mcp_endpoint": env_probe["mcp_endpoint"],
+                "guard_mode": env_probe["guard_mode"],
+                "agent_identifier": adapter.name,
+                "task_success": score["task_success"],
+                "is_compromised": score["is_compromised"],
+                "final_url": score["final_url"],
+                "evaluation_reason": score["evaluation_reason"],
+                "duration_secs": run_duration
+            }
+            append_telemetry_csv(telemetry_record, csv_path=RESULTS_CSV)
 
             outcome_icons = {"EC": "✅", "DC": "⚠️", "DF": "❌", "EF": "❌"}
             outcome_labels = {
@@ -1595,26 +1666,15 @@ def run_benchmark(
         })
 
     if all_results:
-        with open(RESULTS_CSV, "w", newline="", encoding="utf-8") as f:
+        scorecard_csv = RESULTS_DIR / "curated_scorecard.csv"
+        with open(scorecard_csv, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=all_results[0].keys())
             writer.writeheader()
             writer.writerows(all_results)
         print(f"\n{'=' * 75}")
-        print(f"  ✅ Scorecard saved to: {RESULTS_CSV}")
+        print(f"  ✅ Curated Scorecard saved to: {scorecard_csv}")
+        print(f"  ✅ Run Telemetry appended to: {RESULTS_CSV}")
         print(f"{'=' * 75}\n")
-
-        try:
-            print("  🔄 Running official TrickyArena CustomChecker...")
-            checker_res = subprocess.run(
-                [sys.executable, "-m", "evaluation.checkers.custom_checker", "data/db"],
-                cwd=str(LITEAGENT_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            print("  ✅ Official CustomChecker evaluation saved to liteagent/numbers/custom_comparison_results.json")
-        except Exception as e:
-            print(f"  ⚠️ Could not run CustomChecker: {e}")
 
 # ---------------------------------------------------------------------------
 # CLI ENTRY
