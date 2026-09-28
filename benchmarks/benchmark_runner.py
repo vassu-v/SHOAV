@@ -1,12 +1,11 @@
 """
 =============================================================================
-S.H.O.A.V. // GENESIS HACKATHON 2026 — UNGUARDED AGENT BENCHMARK RUNNER
+S.H.O.A.V. // AGENT-AGNOSTIC DARK PATTERN BENCHMARK SUITE
 =============================================================================
 Configured for:
-  - Agent: Antigravity CLI (agy)
-  - Default Model: Gemini 3.6 Flash (Low) [--model gemini-3.6-flash-low --effort low]
-  - Tool Gateway: Auto-Browser MCP at http://127.0.0.1:8000/mcp
-  - Target: TrickyArena (agenttrickydps.vercel.app)
+  - Evaluation Harness & Live Watcher for AI Web Agents
+  - Target Gateway: S.H.O.A.V. Guarded MCP (Port 18500), Raw MCP, or External MCP
+  - Target Domain: TrickyArena (agenttrickydps.vercel.app)
 =============================================================================
 """
 
@@ -32,15 +31,17 @@ except Exception:
     pass
 
 # ---------------------------------------------------------------------------
-# CONFIGURATION
+# CONFIGURATION & PATH RESOLUTION
 # ---------------------------------------------------------------------------
-LITEAGENT_ROOT    = Path("liteagent")
-PROMPTS_DIR       = LITEAGENT_ROOT / "data" / "prompts" / "all_experiments"
-DB_OUTPUT_DIR     = LITEAGENT_ROOT / "data" / "db" / "antigravity_agy"
-RESULTS_CSV       = LITEAGENT_ROOT / "numbers" / "custom_comparison_results.csv"
-AUTO_BROWSER_URL  = "http://127.0.0.1:8000"
+BENCHMARKS_DIR    = Path(__file__).resolve().parent
+PROMPTS_DIR       = BENCHMARKS_DIR / "prompts"
+RESULTS_DIR       = BENCHMARKS_DIR / "results"
+TRACES_DIR        = RESULTS_DIR / "traces"
+RESULTS_CSV       = RESULTS_DIR / "benchmark_results.csv"
+DEFAULT_SHOAV_URL = os.environ.get("SHOAV_URL", "http://127.0.0.1:18500")
+AUTO_BROWSER_URL  = DEFAULT_SHOAV_URL
 RUNS_PER_TASK     = 5
-TASK_TIMEOUT_SECS = 300   # timeout per run (increased to 300s to support multi-turn reasoning models without false timeout failures)
+TASK_TIMEOUT_SECS = 300   # timeout per run (300s to support multi-turn reasoning models)
 
 # Configurable Model Defaults
 DEFAULT_MODEL     = "gemini-3.8-flash"
@@ -259,10 +260,74 @@ def get_domain(url: str) -> str:
             return d
     return "/unknown"
 
-def ab_call(endpoint: str, payload: dict) -> dict:
+# ---------------------------------------------------------------------------
+# MCP & S.H.O.A.V. ENVIRONMENT PROBING
+# ---------------------------------------------------------------------------
+def probe_environment(endpoint_or_port: str | int | None = None) -> dict:
+    """
+    Probes the browser MCP environment and auto-detects S.H.O.A.V. guard status.
+    Supports port numbers (e.g. 18500), URLs (http://127.0.0.1:18500), or external MCP / stdio.
+    """
+    if endpoint_or_port is None:
+        target = os.environ.get("SHOAV_URL", DEFAULT_SHOAV_URL)
+    elif isinstance(endpoint_or_port, int) or str(endpoint_or_port).isdigit():
+        target = f"http://127.0.0.1:{endpoint_or_port}"
+    else:
+        target = str(endpoint_or_port).rstrip("/")
+        if not target.startswith("http://") and not target.startswith("https://") and target != "stdio":
+            target = f"http://{target}"
+
+    if target == "stdio":
+        return {
+            "mcp_type": "external_agent_mcp",
+            "mcp_endpoint": "stdio",
+            "guard_mode": "none",
+            "reachable": True,
+            "status_details": "Using agent-managed stdio MCP"
+        }
+
+    guard_url = f"{target}/live-api/guard"
+    guard_mode = "none"
+    mcp_type = "external_agent_mcp"
+    reachable = False
+    details = ""
+
+    try:
+        req = urllib.request.Request(guard_url, headers={"User-Agent": "SHOAV-Benchmark/2.0"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            guard_mode = data.get("mode", "off")
+            mcp_type = "shoav"
+            reachable = True
+            details = f"S.H.O.A.V. active on {target} (Guard mode: {guard_mode})"
+    except Exception:
+        # Fallback probe for generic MCP /healthz or /mcp/tools
+        try:
+            health_url = f"{target}/healthz"
+            req = urllib.request.Request(health_url, headers={"User-Agent": "SHOAV-Benchmark/2.0"})
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                reachable = True
+                mcp_type = "custom_http_mcp"
+                guard_mode = "off"
+                details = f"Generic MCP server reachable at {target} (Guard: off/unsupported)"
+        except Exception:
+            reachable = False
+            mcp_type = "external_agent_mcp"
+            guard_mode = "none"
+            details = f"No HTTP MCP server responding at {target}. Assuming external agent MCP."
+
+    return {
+        "mcp_type": mcp_type,
+        "mcp_endpoint": target,
+        "guard_mode": guard_mode,
+        "reachable": reachable,
+        "status_details": details
+    }
+
+def ab_call(endpoint: str, payload: dict, base_url: str = DEFAULT_SHOAV_URL) -> dict:
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        f"{AUTO_BROWSER_URL}{endpoint}",
+        f"{base_url.rstrip('/')}{endpoint}",
         data=data,
         headers={"Content-Type": "application/json"},
         method="POST"
@@ -273,106 +338,118 @@ def ab_call(endpoint: str, payload: dict) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-def ab_cleanup_active_sessions():
+def ab_cleanup_active_sessions(base_url: str = DEFAULT_SHOAV_URL):
     """Close any stale active/live sessions so max_sessions=1 is never blocked."""
     try:
-        req = urllib.request.Request(f"{AUTO_BROWSER_URL}/sessions", timeout=5)
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/sessions", timeout=5)
         with urllib.request.urlopen(req) as resp:
             sessions = json.loads(resp.read().decode())
             for s in sessions:
                 if s.get("live") or s.get("status") == "active":
                     sid = s.get("id")
                     if sid:
-                        ab_close_session(sid)
+                        ab_close_session(sid, base_url=base_url)
     except Exception:
         pass
 
-def ab_create_session(task_id: str, start_url: str) -> str | None:
+def ab_create_session(task_id: str, start_url: str, base_url: str = DEFAULT_SHOAV_URL) -> str | None:
     full_url = f"https://{start_url}" if not start_url.startswith("http") else start_url
     
     # Ensure no stale session blocks creation
-    ab_cleanup_active_sessions()
+    ab_cleanup_active_sessions(base_url=base_url)
 
-    result = ab_call("/mcp/tools/call", {
-        "name": "browser.create_session",
-        "arguments": {
-            "name": task_id,
-            "start_url": full_url
-        }
-    })
-    content = result.get("content", [{}])
+    tool_names = ["browser_create_session", "browser.create_session"]
+    result = None
+    for t_name in tool_names:
+        result = ab_call("/mcp/tools/call", {
+            "name": t_name,
+            "arguments": {
+                "name": task_id,
+                "start_url": full_url
+            }
+        }, base_url=base_url)
+        if result and not result.get("error") and not result.get("isError"):
+            break
+
+    content = result.get("content", [{}]) if result else [{}]
     text = content[0].get("text", "") if content else ""
 
     # If session limit was reached, extract stale ID, force close it, and retry once
-    if "Session limit reached" in text or result.get("isError"):
+    if "Session limit reached" in text or (result and result.get("isError")):
         stale_match = re.search(r"Active live session\(s\):\s*([a-f0-9]+)", text)
         if stale_match:
-            ab_close_session(stale_match.group(1))
+            ab_close_session(stale_match.group(1), base_url=base_url)
             time.sleep(1)
-            result = ab_call("/mcp/tools/call", {
-                "name": "browser.create_session",
-                "arguments": {"name": task_id, "start_url": full_url}
-            })
-            content = result.get("content", [{}])
+            for t_name in tool_names:
+                result = ab_call("/mcp/tools/call", {
+                    "name": t_name,
+                    "arguments": {"name": task_id, "start_url": full_url}
+                }, base_url=base_url)
+                if result and not result.get("error") and not result.get("isError"):
+                    break
+            content = result.get("content", [{}]) if result else [{}]
             text = content[0].get("text", "") if content else ""
 
     match = re.search(r'"id"\s*:\s*"([^"]+)"', text) or re.search(r'"session_id"\s*:\s*"([^"]+)"', text)
     return match.group(1) if match else None
 
-def ab_observe_session(session_id: str) -> dict:
+def ab_observe_session(session_id: str, base_url: str = DEFAULT_SHOAV_URL) -> dict:
     """Retrieve the current session observe payload (url, status, dom elements)."""
-    result = ab_call("/mcp/tools/call", {
-        "name": "browser.observe",
-        "arguments": {"session_id": session_id}
-    })
+    for t_name in ["browser_observe", "browser.observe"]:
+        result = ab_call("/mcp/tools/call", {
+            "name": t_name,
+            "arguments": {"session_id": session_id}
+        }, base_url=base_url)
+        if result and not result.get("error") and not result.get("isError"):
+            break
     try:
-        content = result.get("content", [{}])
+        content = result.get("content", [{}]) if result else [{}]
         text = content[0].get("text", "")
         return json.loads(text) if text.startswith("{") else {}
     except Exception:
         return {}
 
-def ab_get_audit_events(session_id: str) -> list[dict]:
+def ab_get_audit_events(session_id: str, base_url: str = DEFAULT_SHOAV_URL) -> list[dict]:
     """Retrieve audit events executed during this session."""
     try:
-        url = f"{AUTO_BROWSER_URL}/audit/events?session_id={session_id}&limit=500"
+        url = f"{base_url.rstrip('/')}/audit/events?session_id={session_id}&limit=500"
         with urllib.request.urlopen(url, timeout=10) as resp:
             return json.loads(resp.read())
     except Exception:
         return []
 
-def ab_close_session(session_id: str):
-    ab_call("/mcp/tools/call", {
-        "name": "browser.close_session",
-        "arguments": {"session_id": session_id}
-    })
+def ab_close_session(session_id: str, base_url: str = DEFAULT_SHOAV_URL):
+    for t_name in ["browser_close_session", "browser.close_session"]:
+        res = ab_call("/mcp/tools/call", {
+            "name": t_name,
+            "arguments": {"session_id": session_id}
+        }, base_url=base_url)
+        if res and not res.get("error"):
+            break
 
-def check_auto_browser_running() -> bool:
+def check_auto_browser_running(base_url: str = DEFAULT_SHOAV_URL) -> bool:
     try:
-        urllib.request.urlopen(f"{AUTO_BROWSER_URL}/mcp/tools", timeout=5)
+        urllib.request.urlopen(f"{base_url.rstrip('/')}/healthz", timeout=3)
         return True
     except Exception:
-        return False
-
-def ensure_auto_browser_running() -> bool:
-    """Check if Auto-Browser is running; if not, launch it in a separate visible console window."""
-    if check_auto_browser_running():
-        return True
-    print("\n  🔄 Auto-Browser MCP is not running. Launching headed Chromium Auto-Browser...")
-    try:
-        script_path = Path(__file__).resolve().parent / "start_auto_browser.py"
-        subprocess.Popen(
-            ["cmd.exe", "/c", "start", "Auto-Browser MCP (Headed)", sys.executable, str(script_path)],
-            shell=True
-        )
-        for i in range(12):
-            time.sleep(1)
-            if check_auto_browser_running():
-                print("  ✅ Auto-Browser MCP is ready and connected to headed Chromium!")
+        try:
+            urllib.request.urlopen(f"{base_url.rstrip('/')}/live-api/guard", timeout=3)
+            return True
+        except Exception:
+            try:
+                urllib.request.urlopen(f"{base_url.rstrip('/')}/mcp/tools", timeout=3)
                 return True
-    except Exception as e:
-        print(f"  ⚠️ Could not auto-start Auto-Browser: {e}")
-    return check_auto_browser_running()
+            except Exception:
+                return False
+
+def ensure_auto_browser_running(base_url: str = DEFAULT_SHOAV_URL) -> bool:
+    """Check if browser MCP is reachable at the target base_url."""
+    if check_auto_browser_running(base_url=base_url):
+        return True
+    print(f"\n  ⚠️ Browser MCP is not responding at {base_url}.")
+    print("     To start S.H.O.A.V. on Port 18500:")
+    print("     powershell -ExecutionPolicy Bypass -File MCP/auto-browser/scripts/start-local.ps1 -Port 18500 -Guard enforce -Background\n")
+    return check_auto_browser_running(base_url=base_url)
 
 # ---------------------------------------------------------------------------
 # SQLITE: Write LiteAgent-compatible action trace
