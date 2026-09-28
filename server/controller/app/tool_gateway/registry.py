@@ -8,6 +8,42 @@ from pydantic import BaseModel
 
 from ..models import McpToolDescriptor
 
+
+def _inline_json_schema_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Replace every ``{"$ref": "#/$defs/Name"}`` with the definition it points at,
+    then drop ``$defs``.
+
+    Pydantic's ``model_json_schema()`` factors a nested model out into a top-level
+    ``$defs`` entry and leaves a bare ``$ref`` in its place, which is valid JSON
+    Schema but some MCP clients pass the schema straight to a model without
+    resolving it, so the model never sees the real shape of a nested-object field
+    (observed: a browser action argument sent back as a JSON string instead of an
+    object). Inlining keeps every advertised tool's schema fully self-describing.
+    A schema with no ``$defs`` is returned unchanged; a ``$ref`` that does not
+    resolve is left as is rather than raising.
+    """
+    defs = schema.get("$defs")
+    if not defs:
+        return schema
+
+    def resolve(node: Any, seen: frozenset[str]) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref[len("#/$defs/") :]
+                if name in defs and name not in seen:
+                    rest = {k: v for k, v in node.items() if k != "$ref"}
+                    inlined = resolve(defs[name], seen | {name})
+                    return {**inlined, **rest} if rest else inlined
+                return node
+            return {k: resolve(v, seen) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [resolve(item, seen) for item in node]
+        return node
+
+    return resolve(schema, frozenset())
+
+
 READ_ONLY_TOOL_NAMES = {
     "browser.get_auth_profile",
     "browser.get_console",
@@ -222,7 +258,7 @@ class ToolRegistry:
                 McpToolDescriptor(
                     name=self._advertised_name(spec.name, self.name_style),
                     description=spec.description,
-                    inputSchema=spec.input_model.model_json_schema(),
+                    inputSchema=_inline_json_schema_refs(spec.input_model.model_json_schema()),
                     annotations=spec.annotations(),
                 ).model_dump(exclude_none=True)
                 for spec in self._tools.values()

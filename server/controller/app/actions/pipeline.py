@@ -56,6 +56,12 @@ class BrowserActionPipeline:
                 raise
             except PlaywrightError as exc:
                 failed = await self._handle_playwright_error(context, witness_state)
+                # First line of the browser error ("net::ERR_CONNECTION_REFUSED at ...",
+                # "Timeout 5000ms exceeded.") says why; the call log below it is noise.
+                reason = (str(exc).strip().splitlines() or [""])[0][:300]
+                details: dict[str, Any] = {"snapshot": failed}
+                if reason:
+                    details["reason"] = reason
                 raise BrowserActionError(
                     "Action failed. Refresh observation and retry.",
                     code="browser_action_failed",
@@ -63,7 +69,7 @@ class BrowserActionPipeline:
                     status_code=400,
                     retryable=True,
                     url=context.session.page.url,
-                    details={"snapshot": failed},
+                    details=details,
                 ) from exc
             return await self._record_success(context, witness_state)
 
