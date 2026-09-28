@@ -682,7 +682,10 @@ class AgyAgentAdapter(AgentAdapter):
     def __init__(self, model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT):
         self.model = model
         self.effort = effort
-        self.name = f"agy-{model}-{effort}"
+        if model.endswith(f"-{effort}"):
+            self.name = f"agy-{model}"
+        else:
+            self.name = f"agy-{model}-{effort}"
 
     def execute(self, prompt: str, session_id: str, url: str, timeout_secs: int = TASK_TIMEOUT_SECS) -> tuple[str, float]:
         full_url = f"https://{url}" if not url.startswith("http") else url
@@ -816,6 +819,7 @@ def run_agent_task(
     prompt: str,
     session_id: str,
     run_idx: int,
+    total_runs: int = 1,
     base_url: str = DEFAULT_SHOAV_URL
 ) -> tuple[str, list[dict], str, str, list[dict]]:
     """
@@ -824,7 +828,7 @@ def run_agent_task(
     Returns: (output_text, actions_list, final_url, page_text, detected_modals)
     """
     full_url = f"https://{url}" if not url.startswith("http") else url
-    print(f"\n  🤖 Run {run_idx + 1}/{RUNS_PER_TASK}: Agent [{adapter.name}]")
+    print(f"\n  🤖 Run {run_idx + 1}/{total_runs}: Agent [{adapter.name}]")
     print(f"     Prompt: \"{prompt}\"")
     print(f"     Target URL: {full_url}")
     print(f"     Session ID: {session_id}")
@@ -853,12 +857,13 @@ def run_agy_task(
     prompt: str,
     session_id: str,
     run_idx: int,
+    total_runs: int = 1,
     model: str = DEFAULT_MODEL,
     effort: str = DEFAULT_EFFORT,
     base_url: str = DEFAULT_SHOAV_URL
 ) -> tuple[str, list[dict], str, str, list[dict]]:
     adapter = AgyAgentAdapter(model=model, effort=effort)
-    return run_agent_task(adapter, url, prompt, session_id, run_idx, base_url=base_url)
+    return run_agent_task(adapter, url, prompt, session_id, run_idx, total_runs=total_runs, base_url=base_url)
 
 # ---------------------------------------------------------------------------
 # SCORING
@@ -1289,7 +1294,7 @@ def run_custom_benchmark(
             continue
 
         agent_output, actions, final_url, page_text, detected_modals = run_agent_task(
-            adapter, target_url, prompt, session_id, run_idx, base_url=base_url
+            adapter, target_url, prompt, session_id, run_idx, total_runs=runs, base_url=base_url
         )
 
         # Write SQLite action trace to TRACES_DIR
@@ -1539,7 +1544,7 @@ def run_benchmark(
                 continue
 
             agent_output, actions, final_url, page_text, detected_modals = run_agent_task(
-                adapter, url, prompt, session_id, run_idx, base_url=base_url
+                adapter, url, prompt, session_id, run_idx, total_runs=runs, base_url=base_url
             )
 
             # Write SQLite action trace to model-specific directory
