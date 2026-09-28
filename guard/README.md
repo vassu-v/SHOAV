@@ -52,4 +52,4 @@ The end to end matrix against a running server is in [`../e2e/README.md`](../e2e
 
 Thresholds are heuristics until tuned on real traffic. Iframe and Shadow DOM hit testing, a live mutation-rate feed, text
 inside images and site specific cart checks are not covered. Wording tricks such as confirmshaming are left to the
-[skill](../skill/README.md). See [`../docs/DESIGN.md`](../docs/DESIGN.md).
+[defence skill](../skills/defense/README.md). See [`../docs/DESIGN.md`](../docs/DESIGN.md).
