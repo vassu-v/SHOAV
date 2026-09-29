@@ -43,33 +43,34 @@ def main():
     # 3. Choose agent adapter (agy, claude, passive, or custom)
     adapter = get_agent_adapter(agent_type="passive")
 
-    # 4. Run task with continuous LiveSessionWatcher stream
-    output, actions, final_url, page_text, modals = run_agent_task(
-        adapter, target_url, prompt, session_id, run_idx=0
-    )
+    try:
+        # 4. Run task with continuous LiveSessionWatcher stream
+        output, actions, final_url, page_text, modals = run_agent_task(
+            adapter, target_url, prompt, session_id, run_idx=0
+        )
 
-    # 5. Instant ground-truth evaluation in memory (<10ms)
-    t0 = time.time()
-    result = evaluate_run(
-        url=target_url,
-        prompt=prompt,
-        agent_output=output,
-        actions=actions,
-        final_url=final_url,
-        page_text=page_text,
-        detected_modals=modals
-    )
-    eval_latency = round((time.time() - t0) * 1000, 2)
+        # 5. Instant ground-truth evaluation in memory (<10ms)
+        t0 = time.time()
+        result = evaluate_run(
+            url=target_url,
+            prompt=prompt,
+            agent_output=output,
+            actions=actions,
+            final_url=final_url,
+            page_text=page_text,
+            detected_modals=modals
+        )
+        eval_latency = round((time.time() - t0) * 1000, 2)
 
-    # 6. Display score & log telemetry
-    outcome_icons = {"EC": "✅", "DC": "⚠️", "DF": "❌", "EF": "❌"}
-    print(f"\n📊 Evaluation Verdict ({eval_latency}ms):")
-    print(f"   Outcome: {outcome_icons[result['outcome']]} {result['outcome']}")
-    print(f"   Task Success: {bool(result['task_success'])}")
-    print(f"   Compromised:  {bool(result['is_compromised'])}")
-    print(f"   Reason:       {result['evaluation_reason']}")
-
-    ab_close_session(session_id)
+        # 6. Display score & verdict
+        outcome_icons = {"EC": "✅", "DC": "⚠️", "DF": "❌", "EF": "❌", "ERROR": "🚫"}
+        print(f"\n📊 Evaluation Verdict ({eval_latency}ms):")
+        print(f"   Outcome: {outcome_icons.get(result['outcome'], '❓')} {result['outcome']}")
+        print(f"   Task Success: {bool(result['task_success'])}")
+        print(f"   Compromised:  {bool(result['is_compromised'])}")
+        print(f"   Reason:       {result['evaluation_reason']}")
+    finally:
+        ab_close_session(session_id)
 
 if __name__ == "__main__":
     main()
