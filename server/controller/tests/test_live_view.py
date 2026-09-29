@@ -371,7 +371,7 @@ class GatewayLiveViewTests(unittest.IsolatedAsyncioTestCase):
         manager.create_session.assert_awaited_once()
         self.assertEqual(response.structuredContent["live_view"]["session_id"], SID)
         self.assertEqual(len(response.content), 2)
-        self.assertIn("AUTO BROWSER  live view", response.content[1].text)
+        self.assertIn("SHOAV  live view", response.content[1].text)
         self.assertEqual(list(json.loads(response.content[0].text))[:2], ["_notice", "live_view"])
         events = await self._events()
         self.assertEqual([e["event"] for e in events], ["start", "end"])

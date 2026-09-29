@@ -168,7 +168,7 @@ class RecorderReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(list(first)[:2], ["_notice", "live_view"])
         self.assertEqual(first["live_view"]["session_id"], "ffffffffffff")
         self.assertEqual(len(response.content), 2)
-        self.assertIn("AUTO BROWSER", response.content[1].text)
+        self.assertIn("SHOAV", response.content[1].text)
 
     async def test_cancelled_call_still_gets_an_end_event(self) -> None:
         await self.svc.register_session(SID)
