@@ -127,7 +127,7 @@ SHOAV_INGRESS_TOOLS = frozenset(
 SHOAV_INGRESS_HEADER = "[S.H.O.A.V. INGRESS SHIELD]"
 
 # Single-source JS probes (Task 6c): canonical home is
-# shoav-mcp/filters/egress/scripts.py. The names below stay as thin
+# guard/filters/egress/scripts.py. The names below stay as thin
 # aliases so existing imports keep working; no duplicated script text.
 try:
     from filters.egress.scripts import FOCUS_CHECK_SCRIPT as _CANON_FOCUS_SCRIPT
@@ -1068,7 +1068,7 @@ class McpToolGateway:
                 import sys as _sys
                 from pathlib import Path as _Path
 
-                _root = _Path(__file__).resolve().parents[5]
+                _root = _Path(__file__).resolve().parents[4] / "guard"
                 _text = str(_root)
                 if _text not in _sys.path:
                     _sys.path.insert(0, _text)
