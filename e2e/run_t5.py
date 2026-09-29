@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """T-5 end to end fixture verification via POST /mcp/tools/call.
 
-Serves shoav-mcp/fixtures/ over loopback on an uncommon 186xx port,
-drives the Auto Browser controller on 18500, and asserts per-fixture
-outcomes for guard off vs observe vs enforce (spec MCP/plan.md section 5).
+Serves e2e/fixtures/ over loopback on an uncommon 186xx port,
+drives the SHOAV server controller on 18500, and asserts per-fixture
+outcomes for guard off vs observe vs enforce (spec docs/integration/plan.md section 5).
 
 Modes (probed via GET /live-api/guard, overridable with --mode):
   off      No guard. Attacks succeed, benign pages read clean.
@@ -18,10 +18,10 @@ enforce mode, when a benign fixture is not ALLOW, or when an overlay
 click is not blocked.
 
 Usage (from the repo root):
-  python shoav-mcp/t5_e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode auto
-  python shoav-mcp/t5_e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode enforce
-  python shoav-mcp/t5_e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode off
-  python shoav-mcp/t5_e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18632 --mode observe
+  python e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode auto
+  python e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode enforce
+  python e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode off
+  python e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18632 --mode observe
 
 Ports: controller 18500, live UI 3200, fixtures 18600-18699.
 Never use 8000, 18480, or 3100.
@@ -40,7 +40,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 
 DEFAULT_CONTROLLER = "http://127.0.0.1:18500"
 DEFAULT_FIXTURE_PORT = 18631
