@@ -14,6 +14,11 @@
  */
 
 (function () {
+  if (typeof document === 'undefined') {
+    const msg = 'audit_telemetry.js must be evaluated inside a browser page (needs document/window).';
+    if (typeof process !== 'undefined' && process.stderr) { console.error('error: ' + msg); process.exitCode = 2; return; }
+    throw new Error(msg);
+  }
   const telemetry = {
     timestamp: new Date().toISOString(),
     threatLevel: 'LOW', // LOW, MEDIUM, HIGH, CRITICAL
@@ -48,9 +53,9 @@
      ========================================================================== */
   function parseColor(str) {
     if (!str || str === 'transparent' || str === 'inherit') return [0, 0, 0, 0];
-    const m = str.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+    const m = str.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)/i);
     if (m) {
-      return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10), m[4] !== undefined ? parseFloat(m[4]) : 1.0];
+      return [Math.round(parseFloat(m[1])), Math.round(parseFloat(m[2])), Math.round(parseFloat(m[3])), m[4] !== undefined ? parseFloat(m[4]) / (m[5] ? 100 : 1) : 1.0];
     }
     if (str.startsWith('#')) {
       let hex = str.slice(1);
@@ -217,22 +222,23 @@
     // Hunt for dismiss anchors in modal or DOM
     const targetRoot = potentialModals[0];
     const INTERACTIVE_SEL = 'button, a, [role="button"], input, select';
-    const rawClickables = Array.from(targetRoot.querySelectorAll('button, a, [role="button"], span, svg, div')).concat(
-      Array.from(document.querySelectorAll('button, a, [role="button"]'))
-    );
-    const clickables = rawClickables.filter(el => {
+    // Search inside the modal first; only fall back to the whole page when the modal holds no anchor.
+    const CLICKABLE_SEL = 'button, a, [role="button"], span, svg, div';
+    let rawClickables = Array.from(targetRoot.querySelectorAll(CLICKABLE_SEL));
+    const keepLeafClickables = list => list.filter(el => {
       if (el.matches(INTERACTIVE_SEL)) return true;
       return !el.querySelector(INTERACTIVE_SEL);
     });
+    let clickables = keepLeafClickables(rawClickables);
 
     const closeGlyphRegex = /^[×✕✖xX⨉\u00d7\u2715\u2716]$/;
-    const closeAttrRegex = /(close|dismiss|cancel|decline|reject|opt-out|skip|no[_-]?thanks|not\s+now|later)/i;
+    const closeAttrRegex = /(close|dismiss|cancel|decline|reject|opt-out|skip|never|no[_-]?thanks|not[_\s-]?now|later)/i;
     const disclosureRegex = /(more[_\s-]?options|customize|manage[_\s-]?(preferences|cookies|settings)|review[_\s-]?settings)/i;
 
     const seenIds = new Set();
     const rawAnchors = [];
 
-    clickables.forEach(el => {
+    const scanClickables = list => list.forEach(el => {
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       const text = (el.innerText || el.textContent || '').trim();
@@ -262,6 +268,11 @@
         });
       }
     });
+    scanClickables(clickables);
+    if (rawAnchors.length === 0) {
+      clickables = keepLeafClickables(Array.from(document.querySelectorAll('button, a, [role="button"]')));
+      scanClickables(clickables);
+    }
 
     // Deduplicate nested matches: keep only the innermost matched element
     telemetry.modals.dismissAnchors = rawAnchors
@@ -282,11 +293,13 @@
     const style = window.getComputedStyle(el);
     if (style.display === 'none' || style.visibility === 'hidden') return;
 
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const opacityNum = parseFloat(style.opacity);
+    const opacity = Number.isNaN(opacityNum) ? 1.0 : opacityNum;
     const fg = parseColor(style.color);
+    fg[3] *= opacity;
     const bg = getEffectiveBg(el);
     const cr = contrastRatio(fg, bg);
-    const fontSize = parseFloat(style.fontSize) || 16;
-    const opacity = parseFloat(style.opacity) || 1.0;
     const text = (el.innerText || el.textContent || '').trim();
     const ariaLabel = el.getAttribute('aria-label') || '';
     const label = (text + ' ' + ariaLabel).trim();
@@ -356,8 +369,20 @@
     const isChecked = resolveCheckedState(input);
 
     if (isChecked) {
-      const labelEl = input.closest('label') || document.querySelector(`label[for="${input.id}"]`) || input.parentElement;
-      const labelText = labelEl ? (labelEl.innerText || labelEl.textContent || '').trim().toLowerCase() : '';
+      let labelEl = input.closest('label')
+        || (input.id ? document.querySelector(`label[for="${CSS.escape(input.id)}"]`) : null);
+      let labelText = labelEl ? (labelEl.innerText || labelEl.textContent || '').trim().toLowerCase() : '';
+      if (!labelText) labelText = (input.getAttribute('aria-label') || input.innerText || input.textContent || '').trim().toLowerCase();
+      if (!labelText) {
+        const ref = input.getAttribute('aria-labelledby');
+        const refEl = ref ? document.getElementById(ref.split(/\s+/)[0]) : null;
+        labelText = refEl ? (refEl.innerText || refEl.textContent || '').trim().toLowerCase() : '';
+      }
+      // Last resort: the parent's text, but only when it is short (a whole-page container is not a label).
+      if (!labelText && input.parentElement) {
+        const pt = (input.parentElement.innerText || input.parentElement.textContent || '').trim().toLowerCase();
+        if (pt.length <= 200) labelText = pt;
+      }
       const isTrackingOrUpsell = trackingKeywords.some(kw => labelText.includes(kw));
 
       telemetry.zeroDefaultAudit.hasPreselectedInputs = true;
@@ -419,7 +444,7 @@
      ========================================================================== */
   const cartContainers = document.querySelectorAll('[class*="cart" i], [id*="cart" i], table, [class*="order-summary" i]');
   if (cartContainers.length > 0) {
-    const stealthRegex = /\b(warranty|protection plan|care plan|insurance|membership|donation|tip|priority fee|handling fee)\b/i;
+    const stealthRegex = /\b(warranty|protection plan|care plan|insurance|membership|donation|tip|priority fee|handling fee|carbon offset|round up)\b/i;
     let itemRows = [];
     cartContainers.forEach(container => {
       const rows = container.querySelectorAll('tr, [class*="cart-item" i], [class*="line-item" i], [class*="product-row" i]');
@@ -429,8 +454,8 @@
 
     itemRows.forEach(row => {
       const text = (row.innerText || row.textContent || '').trim();
-      const priceMatch = text.match(/[\$£€]\s?(\d+(?:\.\d{2})?)/);
-      const price = priceMatch ? parseFloat(priceMatch[1]) : 0;
+      const priceMatch = text.match(/[\$£€]\s?(\d[\d,]*(?:\.\d{1,2})?)/);
+      const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : 0;
 
       if (text.length > 5 && priceMatch) {
         const isStealth = stealthRegex.test(text);
@@ -447,6 +472,7 @@
         };
 
         telemetry.cartAudit.lineItems.push(itemData);
+        telemetry.cartAudit.computedTotal = Math.round((telemetry.cartAudit.computedTotal + price) * 100) / 100;
         if (isStealth) {
           telemetry.cartAudit.stealthItemsDetected.push(itemData);
           telemetry.threatLevel = 'CRITICAL';

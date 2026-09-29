@@ -5,7 +5,7 @@
  * 
  * Calculates exact relative luminance and contrast ratios between foreground text/icons
  * and effective background colors (accounting for opacity and multi-layer DOM inheritance).
- * Detects low-contrast ghost links (e.g. #DDD on #FFF), micro-text (<10px or opacity < 0.45),
+ * Detects low-contrast ghost links (e.g. #DDD on #FFF), micro-text (<11px or opacity < 0.45),
  * and textless clickable elements.
  * 
  * Designed for headless browser execution via Playwright `page.evaluate()` or browser MCP `eval_js`.
@@ -22,14 +22,10 @@
     }
 
     // Handle rgb(r, g, b) or rgba(r, g, b, a)
-    const rgbaMatch = colorStr.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+    const rgbaMatch = colorStr.match(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)/i);
     if (rgbaMatch) {
-      return [
-        parseInt(rgbaMatch[1], 10),
-        parseInt(rgbaMatch[2], 10),
-        parseInt(rgbaMatch[3], 10),
-        rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1.0
-      ];
+      const a = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) / (rgbaMatch[5] ? 100 : 1) : 1.0;
+      return [Math.round(parseFloat(rgbaMatch[1])), Math.round(parseFloat(rgbaMatch[2])), Math.round(parseFloat(rgbaMatch[3])), a];
     }
 
     // Handle Hex colors (#RGB, #RGBA, #RRGGBB, #RRGGBBAA)
@@ -129,11 +125,13 @@
       const style = window.getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') return;
 
+      const fontSize = parseFloat(style.fontSize) || 16;
+      const opacityNum = parseFloat(style.opacity);
+      const opacity = Number.isNaN(opacityNum) ? 1.0 : opacityNum;
       const fgColor = parseColor(style.color);
+      fgColor[3] *= opacity; // element opacity fades the text toward its background
       const bgColor = getEffectiveBackgroundColor(el);
       const contrastRatio = calculateContrastRatio(fgColor, bgColor);
-      const fontSize = parseFloat(style.fontSize) || 16;
-      const opacity = parseFloat(style.opacity) || 1.0;
 
       const innerText = (el.innerText || el.textContent || '').trim();
       const ariaLabel = el.getAttribute('aria-label') || '';
@@ -194,5 +192,6 @@
       auditContrastAndVisualAnomalies
     };
   }
-  return auditContrastAndVisualAnomalies();
+  // Only run the scan when a DOM exists (browser evaluation); plain Node require() just gets the exports.
+  return typeof document !== 'undefined' ? auditContrastAndVisualAnomalies() : undefined;
 })();

@@ -23,7 +23,7 @@
     return (
       style.display !== 'none' &&
       style.visibility !== 'hidden' &&
-      parseFloat(style.opacity) > 0.05
+      !(parseFloat(style.opacity) <= 0.05)
     );
   }
 
@@ -54,7 +54,7 @@
       const z = parseInt(style.zIndex, 10);
       const rect = el.getBoundingClientRect();
       const isAboveMedian = z > medianZ;
-      const isBoundedNotFullscreen = rect.width < vw * 0.95 && rect.height < vh * 0.95 && rect.width > vw * 0.2;
+      const isBoundedNotFullscreen = rect.width < vw * 0.95 && rect.height < vh * 0.95 && rect.width > vw * 0.2 && rect.height > vh * 0.2;
       const isRoughlyCentered = Math.abs((rect.x + rect.width/2) - vw/2) < vw * 0.25;
       return isAboveMedian && isBoundedNotFullscreen && isRoughlyCentered;
     });
@@ -138,7 +138,7 @@
         id: overlay.id || null,
         zIndex: parseInt(style.zIndex, 10) || 0,
         pointerEvents: style.pointerEvents,
-        opacity: parseFloat(style.opacity) || 1.0,
+        opacity: Number.isNaN(parseFloat(style.opacity)) ? 1.0 : parseFloat(style.opacity),
         boundingBox: {
           x: Math.round(rect.x),
           y: Math.round(rect.y),
@@ -168,7 +168,7 @@
 
     // Semantic patterns for escape actions
     const closeGlyphRegex = /^[×✕✖xX⨉\u00d7\u2715\u2716]$/;
-    const closeAttrRegex = /(close|dismiss|cancel|decline|reject|opt-out|skip|never|no[_-]?thanks|later)/i;
+    const closeAttrRegex = /(close|dismiss|cancel|decline|reject|opt-out|skip|never|no[_-]?thanks|not[_\s-]?now|later)/i;
     const progressiveDisclosureRegex = /(more[_\s-]?options|customize|manage[_\s-]?(preferences|cookies|settings)|review[_\s-]?settings|details)/i;
 
     interactive.forEach(el => {
@@ -341,5 +341,6 @@
     };
   }
 
-  return inspectStackingAndOverlays();
+  // Only run the scan when a DOM exists (browser evaluation); plain Node require() just gets the exports.
+  return typeof document !== 'undefined' ? inspectStackingAndOverlays() : undefined;
 })();
