@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Run the Auto Browser controller natively on Windows (no Docker), visible Chromium.
+  Run the SHOAV server controller (reworked Auto Browser) natively on Windows (no Docker), visible Chromium.
 
 .EXAMPLE
   .\scripts\start-local.ps1                       # foreground on :18500
