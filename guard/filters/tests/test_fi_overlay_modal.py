@@ -1,7 +1,7 @@
 """F-I spec tests: overlay policy with modal tuning (Target 2).
 
-Spec sources: shoav-mcp/MCP/plan.md section 5 egress points 1-4 and
-shoav-mcp/DETERMINISTIC_TARGETS.md Target 2 plus the F-I modal policy in
+Spec sources: docs/integration/plan.md section 5 egress points 1-4 and
+guard/DETERMINISTIC_TARGETS.md Target 2 plus the F-I modal policy in
 filters/egress/rules.py (opaque top element with merely elevated z-index
 escalates as a plausible modal; near-zero-opacity top element or absurd z
 blocks; ordinary mismatch escalates; exact match or inside_target allows).

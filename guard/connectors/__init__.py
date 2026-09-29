@@ -1,7 +1,7 @@
 """S.H.O.A.V. connectors package (adapter layer).
 
 Adapters are dict in, dict out, no controller imports, no network.
-See shoav-mcp/MCP/plan.md sections 4-5 and shoav-mcp/filters/README.md.
+See docs/integration/plan.md sections 4-5 and guard/filters/README.md.
 """
 
 from .egress_args import (

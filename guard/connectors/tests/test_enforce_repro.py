@@ -1,10 +1,10 @@
 """Enforce-failure reproduction: ingress runner-visible path (items 1, 2, 6).
 
-Spec source: shoav-mcp/MCP/plan.md section 5 only, plus interface
+Spec source: docs/integration/plan.md section 5 only, plus interface
 signatures (normalize_observe, snapshot/find_elements/get_html payload
 builders, IngressFilter.process, apply_rewrite). No controller reads,
 no network, no browsers. Synthetic inline data mirroring
-shoav-mcp/fixtures/hidden_text.html and prechecked.html wording.
+e2e/fixtures/hidden_text.html and prechecked.html wording.
 
 Plan section 5 contracts documented here:
 - browser.get_html runs text scan on result["content"].

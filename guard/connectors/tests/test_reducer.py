@@ -1,6 +1,6 @@
 """T-3 reducer and UI contract tests (spec only).
 
-Spec source: shoav-mcp/MCP/plan.md section 6.
+Spec source: docs/integration/plan.md section 6.
 Contracts:
 - Guard badge on each tool row: ALLOW quiet, REWRITE amber, ESCALATE
   orange, BLOCK red.

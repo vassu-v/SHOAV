@@ -1,11 +1,11 @@
 """Enforce-failure reproduction: decision-function level (items 3, 4, 5).
 
-Spec source: shoav-mcp/MCP/plan.md section 5 plus public decision
+Spec source: docs/integration/plan.md section 5 plus public decision
 signatures only: EgressFilter.verify_click(expected_ref, hit_result),
 IngressFilter.process(payload, ...) with form_controls, and
 EgressFilter.verify_submission(session_state). No controller reads, no
 network, no browsers. Synthetic inline data mirroring
-shoav-mcp/fixtures/overlay.html, prechecked.html and flood.html.
+e2e/fixtures/overlay.html, prechecked.html and flood.html.
 """
 
 import unittest

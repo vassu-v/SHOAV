@@ -1,6 +1,6 @@
 """T-2 guard hook tests with fake gateway (no real controller).
 
-Spec source: shoav-mcp/MCP/plan.md sections 5-6.
+Spec source: docs/integration/plan.md sections 5-6.
 Semantics:
 - off: no guard object, zero overhead.
 - observe: run filters, emit guard events and a _shoav note, never block

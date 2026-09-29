@@ -104,6 +104,12 @@ STYLE_PROBE_SCRIPT = """
 (() => {
     const results = [];
     const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const scroll = { x: window.pageXOffset || 0, y: window.pageYOffset || 0 };
+    const de = document.documentElement, bd = document.body;
+    const doc = {
+        width: Math.max(de ? de.scrollWidth : 0, bd ? bd.scrollWidth : 0),
+        height: Math.max(de ? de.scrollHeight : 0, bd ? bd.scrollHeight : 0),
+    };
     const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'TITLE', 'META', 'LINK', 'BASE']);
     const MAX_RESULTS = 2000;
 
@@ -160,6 +166,8 @@ STYLE_PROBE_SCRIPT = """
             font_size: eff.fontSize,
             rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
             viewport,
+            scroll,
+            doc,
         });
     }
     return results;

@@ -1,6 +1,6 @@
 """F-B snapshot and scan path regression tests (spec only).
 
-Spec source: shoav-mcp/MCP/plan.md section 5.
+Spec source: docs/integration/plan.md section 5.
 - browser.snapshot runs ingress on _mcp_text, sanitized text lands back in
   _mcp_text, structuredContent omitted.
 - browser.find_elements runs on concatenated text and context_text.
@@ -35,7 +35,7 @@ from connectors.snapshot_adapter import (  # noqa: E402
 from filters.ingress.engine import IngressFilter  # noqa: E402
 
 GUARD_FILE = (
-    SHOAV_ROOT / "MCP" / "auto-browser" / "controller" / "app"
+    SHOAV_ROOT.parent / "server" / "controller" / "app"
     / "guard" / "guard.py"
 )
 

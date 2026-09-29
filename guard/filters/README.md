@@ -1,4 +1,4 @@
-# S.H.O.A.V. Deterministic Filter Core (`shoav-mcp/filters/`)
+# S.H.O.A.V. Deterministic Filter Core (`guard/filters/`)
 
 **Status: independent core built and unit-tested. Not wired into any MCP yet — see "What's still open" below.**
 
@@ -27,9 +27,9 @@ research done while coding:
   bait-and-switch, aesthetic manipulation — those need language
   understanding and are out of scope for this core by design, routed to
   the separate cognitive-vigilance skill instead).
-- **`shoav-mcp/DETERMINISTIC_TARGETS.md`** — the exact 5-target spec this
+- **`guard/DETERMINISTIC_TARGETS.md`** — the exact 5-target spec this
   package implements against (table below).
-- **`shoav-mcp/filters/context.md`** and **`PLAN_AND_ROUGH_SKETCH.md`** —
+- **`guard/filters/context.md`** and **`PLAN_AND_ROUGH_SKETCH.md`** —
   the architectural decisions (Ingress ALLOW/REWRITE/BLOCK, Egress
   ALLOW/BLOCK/ESCALATE, the "unified adapter" pattern: pure core now,
   connectors later) and the original rough code sketches this package
@@ -56,7 +56,7 @@ Auto Browser's real payloads, and only afterward write a thin connector
 that feeds it live data. Nothing here imports Playwright, FastAPI, or
 anything from `external/`.
 
-## 3. Target coverage vs. `shoav-mcp/DETERMINISTIC_TARGETS.md`
+## 3. Target coverage vs. `guard/DETERMINISTIC_TARGETS.md`
 
 | # | Target | Status | Where |
 |---|---|---|---|
@@ -76,7 +76,7 @@ cognitive-vigilance skill's job.
 ## 4. What was actually built
 
 ```
-shoav-mcp/filters/
+guard/filters/
 ├── constants.py       every threshold/keyword list, one place, each with
 │                       a one-line note of which doc it came from
 ├── types.py            Verdict enum: ALLOW / REWRITE / BLOCK / ESCALATE
@@ -137,7 +137,7 @@ dependencies for the deterministic core" philosophy from
 `PLAN_AND_ROUGH_SKETCH.md` §4).
 
 ```bash
-cd shoav-mcp && python3 -m unittest discover -s filters/tests -t . -v
+cd guard && python3 -m unittest discover -s filters/tests -t . -v
 ```
 
 `tests/fixtures.py` is the important file to read first: it's data shaped
@@ -226,13 +226,13 @@ node, so longer hidden text is removed only in that prefix), and Target 5
 The whole point of building this independently was to defer the
 integration decision, not skip it. Two connectors, not written yet:
 
-- **`shoav-mcp/connectors/gateway_patch.py`** — an in-process wrapper
+- **`guard/connectors/gateway_patch.py`** — an in-process wrapper
   around `McpToolGateway.call_tool()` inside `external/auto-browser`. Calls
   `session.page.evaluate()` directly, bypassing the `eval_js`
   governed-approval gate entirely since it never goes through that tool
   call. The internals work you're doing separately is exactly what this
   connector will eventually sit on top of.
-- **`shoav-mcp/connectors/proxy_adapter.py`** — an external stdio/HTTP MCP
+- **`guard/connectors/proxy_adapter.py`** — an external stdio/HTTP MCP
   proxy in front of Auto Browser, for running the guard against a stock,
   unmodified install. Needs the `eval_js` auto-approve dance (call → 409 →
   self-approve via `browser.approve_approval` → retry) worked out first.
