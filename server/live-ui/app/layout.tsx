@@ -8,7 +8,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Auto Browser Live",
+  title: "SHOAV live view",
   description: "Watch what an agent does in the browser, in real time.",
 };
 
@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <TooltipProvider delayDuration={200}>
           <header className="border-b">
             <div className="mx-auto flex h-11 max-w-[1600px] items-center gap-3 px-4">
-              <Link href="/" className="font-medium tracking-tight">Auto Browser</Link>
+              <Link href="/" className="font-medium tracking-tight">SHOAV</Link>
               <span className="text-muted-foreground">live view</span>
             </div>
           </header>

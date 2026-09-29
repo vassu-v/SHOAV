@@ -135,8 +135,8 @@ class StdioMcpBridge:
             return self._jsonrpc_error(
                 request_id,
                 -32000,
-                f"No Auto Browser controller reachable at {self.client.base_url} — "
-                "start one with 'scripts/start-local.ps1' in the auto-browser repo, or pass "
+                f"No SHOAV controller reachable at {self.client.base_url} — "
+                "start one with 'server/scripts/start-local.ps1' in the SHOAV repo, or pass "
                 f"--base-url/AUTO_BROWSER_BASE_URL for a remote deployment. (underlying: {exc.reason})",
             )
         except Exception as exc:  # pragma: no cover - defensive bridge guard
@@ -161,7 +161,7 @@ class StdioMcpBridge:
             return None
         if response.body is None:
             return self._jsonrpc_error(
-                request_id, -32000, f"Empty response from Auto Browser MCP endpoint ({response.status_code})"
+                request_id, -32000, f"Empty response from SHOAV MCP endpoint ({response.status_code})"
             )
         return response.body
 
@@ -178,7 +178,7 @@ class StdioMcpBridge:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Bridge stdio MCP clients to the Auto Browser HTTP MCP endpoint.")
+    parser = argparse.ArgumentParser(description="Bridge stdio MCP clients to the SHOAV HTTP MCP endpoint.")
     parser.add_argument(
         "--base-url",
         default=os.environ.get("AUTO_BROWSER_BASE_URL", "http://127.0.0.1:8000/mcp"),
@@ -187,7 +187,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bearer-token",
         default=os.environ.get("AUTO_BROWSER_BEARER_TOKEN"),
-        help="Optional API bearer token for the Auto Browser HTTP server.",
+        help="Optional API bearer token for the SHOAV HTTP server.",
     )
     parser.add_argument(
         "--timeout-seconds",
