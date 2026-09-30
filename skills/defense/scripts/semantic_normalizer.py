@@ -11,7 +11,10 @@ Universal for real-world web environments. No hardcoded selectors.
 """
 
 from typing import Dict, Any, Optional
+import argparse
+import json
 import re
+import sys
 
 
 class SemanticNormalizer:
@@ -34,7 +37,7 @@ class SemanticNormalizer:
         (r"(yes[,\s]+)?i('?d|\s+would)\s+rather\s+pay\s+(more|full\s+price)", "ACCEPT_FULL_PRICE_TRAP"),
 
         # Free-trial / recurring entrapment framing
-        (r"(start\s+(my|your)\s+(free\s+)?\d*[-\s]?day?\s*trial)", "ENROLL_PAID_RECURRING_PLAN"),
+        (r"(start\s+((my|your)\s+)?(free\s+)?(\d+[-\s]?days?\s+)?(free\s+)?trial)", "ENROLL_PAID_RECURRING_PLAN"),
         (r"(try\s+(it\s+)?free\s+for\s+\d+\s+days?)", "ENROLL_PAID_RECURRING_PLAN"),
         (r"(unlock\s+(premium|full)\s+access\s+(now|today))", "ENROLL_PAID_RECURRING_PLAN"),
 
@@ -167,14 +170,33 @@ class SemanticNormalizer:
             "action": ("CLICK_TO_TOGGLE" if must_click else "NO_ACTION_REQUIRED"),
             "explanation": explanation,
             "requires_llm_verification": (
-                any(w in cleaned for w in cls.NEGATION_WORDS) and
+                any(re.search(r"(?<![\w'-])" + re.escape(w) + r"(?![\w'-])", cleaned) for w in cls.NEGATION_WORDS) and
                 not (has_negation_in_premise or has_negative_clause)
             )
         }
         return result
 
 
-if __name__ == "__main__":
+def _cli(argv) -> int:
+    """Usage: semantic_normalizer.py "button text"   or   semantic_normalizer.py --checkbox "label" [--wants-communication] [--checked]"""
+    ap = argparse.ArgumentParser(description="Normalize deceptive UI copy or solve a trick checkbox.")
+    ap.add_argument("text", nargs="?", help="raw button/label copy to normalize")
+    ap.add_argument("--checkbox", help="checkbox label to solve (double negatives)")
+    ap.add_argument("--wants-communication", action="store_true", help="the user explicitly wants to opt in")
+    ap.add_argument("--checked", action="store_true", help="the box is currently checked")
+    args = ap.parse_args(argv)
+    if args.checkbox:
+        out = SemanticNormalizer.solve_checkbox_polarity(args.checkbox, args.wants_communication, args.checked)
+    elif args.text:
+        out = SemanticNormalizer.de_emotify(args.text)
+    else:
+        ap.print_usage(sys.stderr)
+        return 2
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _selftest() -> None:
     # Test SKILL.md documented table rows
     r1 = SemanticNormalizer.de_emotify("I DON'T WANT FASTER WEB")
     assert r1["polarity"] == "NEGATIVE", f"Expected NEGATIVE, got {r1}"
@@ -207,4 +229,15 @@ if __name__ == "__main__":
     cb2 = SemanticNormalizer.solve_checkbox_polarity("Please leave this box unchecked to receive offers", user_wants_communication=False)
     assert cb2["target_checked_state"] is True, f"Expected True (checked to opt out), got {cb2}"
 
+    r9 = SemanticNormalizer.de_emotify("Start free trial")
+    assert r9["polarity"] == "TRAP_AFFIRMATIVE", f"Expected TRAP_AFFIRMATIVE, got {r9}"
+    cb3 = SemanticNormalizer.solve_checkbox_polarity("Send me notifications and offers")
+    assert cb3["requires_llm_verification"] is False, cb3
+
     print("All SemanticNormalizer tests passed successfully!")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        sys.exit(_cli(sys.argv[1:]))
+    _selftest()

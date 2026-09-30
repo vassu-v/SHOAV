@@ -1,28 +1,28 @@
 ---
-name: SHOAV_SKILLforAGENTS
+name: shoav
 description: >-
-  SHOAV_SKILLforAGENTS (Shield for Hostile Operations & Agent Vulnerability — An AI Bodyguard): Comprehensive,
+  S.H.O.A.V. (Shield for Hostile Operations & Agent Vulnerability — An AI Bodyguard): Comprehensive,
   production-grade defense manual and execution protocols for autonomous AI web agents operating
   in adversarial and deceptive environments infested with dark patterns. Detects and evades visual
   camouflage, modal traps, stealth fees, preselected opt-ins, confirmshaming, and progressive disclosure barriers.
 ---
 
-# SHOAV_SKILLforAGENTS: Shield for Hostile Operations & Agent Vulnerability (An AI Bodyguard)
+# S.H.O.A.V.: Shield for Hostile Operations & Agent Vulnerability (An AI Bodyguard)
 
-SHOAV_SKILLforAGENTS (**S**hield for **H**ostile **O**perations & **A**gent **V**ulnerability) serves as an AI bodyguard that equips autonomous web agents (multimodal and DOM-based) with systematic, invariant-driven protocols to identify, resist, and evade deceptive design patterns on the open web.
+S.H.O.A.V. (**S**hield for **H**ostile **O**perations & **A**gent **V**ulnerability) serves as an AI bodyguard that equips autonomous web agents (multimodal and DOM-based) with systematic, invariant-driven protocols to identify, resist, and evade deceptive design patterns on the open web.
 
 Unlike human users who succumb to cognitive biases like loss aversion and reading fatigue, autonomous AI agents suffer from distinct architectural vulnerabilities: **visual salience bias** (attraction to vibrant, high-contrast buttons), **RLHF agreeableness** (reluctance to select guilt-framed refusal copy), **over-reasoning defects** (letting general knowledge override specific refusal instructions), and **passive DOM reliance** (failing to inspect stacking contexts or uncheck pre-selected defaults).
 
-SHOAV_SKILLforAGENTS establishes an adversarial defense posture based on **mathematical invariants, coordinate hit-testing, visual contrast equalization, zero-default policies, and formal semantic normalization**.
+S.H.O.A.V. establishes an adversarial defense posture based on **mathematical invariants, coordinate hit-testing, visual contrast equalization, zero-default policies, and formal semantic normalization**.
 
 ---
 
 > [!IMPORTANT]
 > ### Execution Tooling Precedence & Fallback Policy
-> The executable JavaScript and Python scripts located in the companion [`scripts/`](scripts) directory are intended **strictly as a last-resort fallback** for minimalist environments that lack built-in browser automation tools, page evaluators, or native agent tooling.
-> * If you are running an autonomous agent equipped with **SHOAV MCP**, native Playwright/Puppeteer page evaluation tools, or equivalent browser inspection capabilities, **these standalone scripts are NOT required**; use your native tools and equivalents instead.
-> * Only navigate to and execute the scripts in the `scripts/` directory if no pre-existing equivalents or native browser inspection tools are available.
-> * This manual defines the **underlying mathematical invariants, algorithmic procedures, and decision flowcharts**. If raw script implementations are needed in the absence of native tooling, navigate to the companion [`scripts/`](scripts) folder.
+> * **With the SHOAV MCP** (MCP server key `shoav`, default URL `http://127.0.0.1:18500/mcp`, tools named `browser_*`), the guard enforces these checks on every action for you. Follow its blocks and warnings, and use this skill as the playbook for why and what to do next. The bundled scripts are **not needed**.
+> * **With an agent that keeps its own browser** (native Playwright/Puppeteer page evaluation or equivalent), apply the invariants below with your own tooling first.
+> * The scripts in [`scripts/`](scripts) are the **last-resort fallback** for minimalist environments with no guard and no page evaluator. Section 4 says how to run each one.
+> * This manual defines the **mathematical invariants, algorithmic procedures, and decision flowcharts**.
 
 ---
 
@@ -92,7 +92,7 @@ Websites suppress opt-out and decline actions by stripping visual weight: low-co
   where $C_s = C/255 \le 0.04045 ? C/12.92 : ((C/255 + 0.055)/1.055)^{2.4}$
 * **Contrast Ratio ($\text{CR}$):**
   $$\text{CR} = \frac{\max(L_1, L_2) + 0.05}{\min(L_1, L_2) + 0.05}$$
-  Any interactive refusal control with $\text{CR} < 2.5:1$ is classified as **Camouflaged**.
+  Any interactive refusal control with $\text{CR} < 2.5:1$ is classified as **Camouflaged**. The scripts also list controls below the WCAG minimum (4.5:1 normal text, 3:1 large text) as low contrast, but only the 2.5:1 rule marks a likely hidden refusal.
 
 ```mermaid
 flowchart TD
@@ -113,7 +113,7 @@ flowchart TD
 3. **Contrast Calculation:** Determine relative luminance of effective text color against effective background.
 4. **Camouflage Scoring:** If $\text{CR} < 2.5:1$ or $\text{fontSize} < 11\text{px}$ or $\text{opacity} < 0.45$, mark element as a disguised refusal candidate.
 5. **Salience Neutralization:** Discount visual size and color saturation of prominent CTAs. If a prominent affirmative button says "Accept All", search among camouflaged elements for the corresponding refusal.
-*(Fallback script: navigate to [`scripts/calculate_contrast.js`](scripts/calculate_contrast.js) if native evaluator is unavailable).*
+*(Fallback script: [`scripts/calculate_contrast.js`](scripts/calculate_contrast.js) if no native evaluator or guard is available; see section 4).*
 
 ---
 
@@ -143,7 +143,7 @@ flowchart TD
 #### Algorithm 2: Stacking Context Isolation & Dismiss Anchor Discovery
 1. **Modal Candidate Identification:**
    - *Primary:* Query standard ARIA dialog attributes: `dialog[open]`, `[role="dialog"]`, `[role="alertdialog"]`, `[aria-modal="true"]`.
-   - *Geometric Fallback:* If zero matches, locate elements with `position: fixed|absolute`, $z > \text{median}(Z)$, bounding width/height between $20\%$ and $95\%$ of viewport, centered within $|\Delta X| < 0.25 V_w$.
+   - *Geometric Fallback:* If zero matches, locate elements with `position: fixed|absolute`, $z > \text{median}(Z)$, bounding width and height between $20\%$ and $95\%$ of viewport, centered within $|\Delta X| < 0.25 V_w$.
 2. **Coordinate Hit-Testing:**
    - Before dispatching clicks to $(x, y)$, assert:
      $$\text{hitElement} = \text{document.elementFromPoint}(x, y) \implies (\text{target} == \text{hitElement} \lor \text{target.contains}(\text{hitElement}))$$
@@ -152,7 +152,7 @@ flowchart TD
    - *Tier 1:* Corner Glyphs matching `^[×✕✖xX⨉\u00d7\u2715\u2716]$` in top bounds.
    - *Tier 2:* Secondary/muted text matching `(close|dismiss|cancel|decline|reject|opt-out|skip|no thanks|later|not now)`.
    - *Tier 3:* Progressive disclosure triggers matching `(more options|customize|manage|review settings)`.
-*(Fallback script: navigate to [`scripts/inspect_zindex_overlays.js`](scripts/inspect_zindex_overlays.js) if native evaluator is unavailable).*
+*(Fallback script: [`scripts/inspect_zindex_overlays.js`](scripts/inspect_zindex_overlays.js) if no native evaluator or guard is available; see section 4).*
 
 ---
 
@@ -167,7 +167,8 @@ Let $C_{items}$ be the real-time line items scraped from the cart or order summa
 
 $$\text{Invariant 1 (Strict Item Whitelist)}: \forall j \in C_{items}, \quad j \in U_{items}$$
 $$\text{Invariant 2 (Price Bounds)}: \forall j \in C_{items}, \quad \text{Price}(j) \le \text{MaxAllowedPrice}(j)$$
-$$\text{Invariant 3 (Total Delta Bound)}: T_{cart} = \sum_{j \in C_{items}} (\text{Price}(j) \times \text{Qty}(j)) + \text{Permissible Tax/Shipping}$$
+$$\text{Invariant 3 (Total Delta Bound)}: T_{displayed} = \sum_{j \in C_{items}} (\text{Price}(j) \times \text{Qty}(j)) + \Delta, \quad 0 \le \Delta \le \text{MaxTaxShipping}$$
+Unless the user allowed tax and shipping, $\Delta$ must be $0$. An optional budget ceiling ($T_{displayed} \le \text{MaxBudget}$) is checked as well.
 
 ```mermaid
 flowchart TD
@@ -187,7 +188,7 @@ flowchart TD
 1. **Enforce Checkout Halt:** Strictly prohibit clicking payment/checkout actions while line items remain unverified.
 2. **Scan for Stealth Keywords:** Audit line-item text for unrequested additions: `warranty`, `protection`, `care plan`, `priority fee`, `handling fee`, `membership`, `donation`, `insurance`.
 3. **Automated Pruning:** For each unrequested item, locate its row-scoped removal control (`[aria-label*="remove" i]`, `button:has-text("Remove")`) and click it. Re-audit until $C_{items} \subseteq U_{items}$.
-*(Fallback script: navigate to [`scripts/cart_invariants_auditor.py`](scripts/cart_invariants_auditor.py) if native evaluator is unavailable).*
+*(Fallback script: [`scripts/cart_invariants_auditor.py`](scripts/cart_invariants_auditor.py) if no native evaluator or guard is available; see section 4).*
 
 ---
 
@@ -222,7 +223,7 @@ flowchart TD
    - *Tier 2 (ARIA):* If `aria-checked` exists, return `ariaChecked === 'true'`.
    - *Tier 3 (Geometric Heuristic):* For unadorned switches, inspect the child thumb element. If $\Delta X_{thumb} > 0.5 \times W_{track}$ and fill luminance is non-gray, classify as ON.
 2. **Inversion Protocol:** If resolved as ON and surrounding label contains marketing/tracking terms, dispatch a toggle click and confirm transition to OFF.
-*(Fallback script: navigate to [`scripts/audit_telemetry.js`](scripts/audit_telemetry.js) if native evaluator is unavailable).*
+*(Fallback script: [`scripts/audit_telemetry.js`](scripts/audit_telemetry.js) if no native evaluator or guard is available; see section 4).*
 
 ---
 
@@ -270,7 +271,7 @@ flowchart TD
 2. **Clause Negation:** Copy matching `\b(check if you do not want)\b`:
    - *Rule:* Checking the box ($C=1$) achieves opt-out.
 3. **Ambiguous Negation Escalation:** If negation keywords exist but match no canonical structure, emit `requires_llm_verification: true` for CoT deliberation.
-*(Fallback script: navigate to [`scripts/semantic_normalizer.py`](scripts/semantic_normalizer.py) if native evaluator is unavailable).*
+*(Fallback script: [`scripts/semantic_normalizer.py`](scripts/semantic_normalizer.py) if no native evaluator or guard is available; see section 4).*
 
 ---
 
@@ -303,15 +304,17 @@ flowchart TD
 ## 4. Companion Scripts Directory Guide
 
 > [!NOTE]
-> Navigate to the [`scripts/`](scripts) directory **only if native browser evaluation capabilities (Playwright / SHOAV MCP) are absent**.
+> Use the [`scripts/`](scripts) directory **only if native browser evaluation (Playwright, or the SHOAV MCP guard) is absent**.
 
-| Script File | Purpose & Capabilities | Fallback Usage |
+| Script File | Purpose & Capabilities | How to run |
 | :--- | :--- | :--- |
-| [`calculate_contrast.js`](scripts/calculate_contrast.js) | Full WCAG 2.1 relative luminance & contrast ratio engine. Resolves stacked background alphas, detects bleached text (`#DDD`), and micro-elements. | Evaluate in browser via native page evaluator or CDP console. |
-| [`inspect_zindex_overlays.js`](scripts/inspect_zindex_overlays.js) | Modal and stacking context auditor. Performs coordinate hit-testing via `document.elementFromPoint(x, y)` and hunts 3-tier dismiss anchors. | Evaluate in browser via native page evaluator or CDP console. |
-| [`audit_telemetry.js`](scripts/audit_telemetry.js) | Master unified telemetry engine. Executes Modals, Contrast, Zero-Defaults, Progressive Disclosures, and Cart audits in a single synchronous call. | Evaluate at each new page load or state transition. |
-| [`cart_invariants_auditor.py`](scripts/cart_invariants_auditor.py) | Python contractual invariant guardrail class. Enforces item whitelists, detects drip pricing, and validates pre-checkout invariants. | Call before purchase execution in Python runtimes. |
-| [`semantic_normalizer.py`](scripts/semantic_normalizer.py) | Python semantic guilt neutralizer & propositional truth table solver. Maps confirmshaming to primitives and flags ambiguous negations. | Call before prompting LLM planner with action choices. |
+| [`calculate_contrast.js`](scripts/calculate_contrast.js) | WCAG 2.1 luminance and contrast engine. Resolves stacked background alphas, flags bleached text (`#DDD`), micro-text (under 11px or opacity under 0.45) and textless controls. Returns a list of findings. | Browser script: evaluate the file text in the page, for example `page.evaluate(fs.readFileSync(path, 'utf8'))`. |
+| [`inspect_zindex_overlays.js`](scripts/inspect_zindex_overlays.js) | Modal, backdrop and clickjack-layer auditor with 3-tier dismiss anchor discovery. Also defines `window.testClickTarget(el)` for `elementFromPoint` hit-testing. | Browser script, evaluated as above. |
+| [`audit_telemetry.js`](scripts/audit_telemetry.js) | Unified in-page report: modals, contrast, zero-defaults, progressive disclosure and cart sniffing in one call. | Browser script, evaluated on each new page or state. |
+| [`cart_invariants_auditor.py`](scripts/cart_invariants_auditor.py) | Cart invariants: item whitelist, price bounds, total delta, budget ceiling, stealth add-ons. | `python cart_invariants_auditor.py --requested req.json --cart cart.json --total 34.99 [--max-budget N] [--allow-shipping-tax] [--max-shipping-tax N]`. Exit 0 valid, 1 violations, 2 bad input. Also importable as `CartInvariantAuditor`. |
+| [`semantic_normalizer.py`](scripts/semantic_normalizer.py) | Confirmshaming normalizer and double-negative checkbox solver. | `python semantic_normalizer.py "button text"` or `python semantic_normalizer.py --checkbox "label" [--wants-communication] [--checked]`. Importable as `SemanticNormalizer`. |
+
+The JavaScript files are browser scripts: they need `document` and `window`, so running them with plain `node` only loads their helper exports (`audit_telemetry.js` prints a clear error instead). Python 3.8 or newer is enough. `sh scripts/selftest.sh` runs every script on built-in sample data and exits non-zero on failure.
 
 ---
 

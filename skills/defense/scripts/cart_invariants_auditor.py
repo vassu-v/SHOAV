@@ -11,8 +11,11 @@ and unauthorized recurring subscriptions.
 Universal for real-world web environments. No hardcoded selectors.
 """
 
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Optional
+import argparse
+import json
 import re
+import sys
 
 
 class LineItem:
@@ -35,16 +38,19 @@ class CartInvariantAuditor:
     """
     Enforces contractual invariants before purchase submission.
     
-    Invariant 1: Item Set Equivalence (C_items ⊆ U_items)
+    Invariant 1: Strict Item Whitelist (C_items subset of U_items)
                  Every line item in the cart must be explicitly authorized.
-    Invariant 2: Budget Ceiling (Total <= Max Budget)
-    Invariant 3: Math Consistency (Sum(Items) + Tax + Shipping == Displayed Total)
+    Invariant 2: Price Bounds (unit price <= max_unit_price of the matching request)
+    Invariant 3: Total Delta Bound (Displayed Total - Sum(Items) is 0, or within the
+                 allowed tax and shipping ceiling)
+    Extra:       Budget Ceiling (Total <= max_budget)
     """
 
     STEALTH_FLAG_KEYWORDS = [
         "warranty", "protection plan", "care plan", "device protection",
         "priority handling", "priority dispatch", "rush processing",
-        "donation", "round up", "tip", "membership fee", "vip club",
+        "donation", "round up", "tip", "membership fee", "vip club", "membership",
+        "insurance", "priority fee", "handling fee",
         "accidental damage", "extended coverage", "carbon offset"
     ]
 
@@ -89,22 +95,23 @@ class CartInvariantAuditor:
 
         for item in cart_line_items:
             title = item.get("title", "").strip()
-            price = float(item.get("price", 0.0))
-            quantity = int(item.get("quantity", 1))
+            price = self._to_price(item.get("price"))
+            quantity = int(item.get("quantity") or 1)
             title_lower = title.lower()
             computed_sum += price * quantity
 
-            # Check if this item triggers stealth keywords
-            is_stealth_keyword = any(kw in title_lower for kw in self.STEALTH_FLAG_KEYWORDS)
+            # Check if this item triggers stealth keywords (whole words, so "tip" does not match "multiple")
+            is_stealth_keyword = self._has_stealth_keyword(title_lower)
             if is_stealth_keyword:
                 stealth_items.append(item)
 
             # Match against requested items whitelist
             matched_request = None
             for req in self.requested_items:
-                req_title = req.get("title", "").lower()
-                # Check for semantic title containment, excluding stealth suffixes
-                if req_title in title_lower and not is_stealth_keyword:
+                req_title = (req.get("title") or "").lower().strip()
+                # Title containment, excluding stealth suffixes unless the user asked for that very add-on
+                stealth_ok = (not is_stealth_keyword) or self._has_stealth_keyword(req_title)
+                if req_title and req_title in title_lower and stealth_ok:
                     matched_request = req
                     break
 
@@ -124,7 +131,7 @@ class CartInvariantAuditor:
                     "action": "REMOVE_CART_ITEM",
                     "target_title": title,
                     "target_id": item.get("id"),
-                    "suggested_selector": f"[aria-label*='remove' i], [title*='remove' i], button:has-text('Remove')"
+                    "suggested_selector": "[aria-label*='remove' i], [title*='remove' i], button:has-text('Remove')"
                 })
 
         computed_sum = round(computed_sum, 2)
@@ -178,6 +185,20 @@ class CartInvariantAuditor:
             "stealth_items": stealth_items
         }
 
+    @classmethod
+    def _has_stealth_keyword(cls, text_lower: str) -> bool:
+        return any(re.search(r"\b" + re.escape(kw) + r"\b", text_lower) for kw in cls.STEALTH_FLAG_KEYWORDS)
+
+    @classmethod
+    def _to_price(cls, value: Any) -> float:
+        """Accept 21.99, "21.99" or "$1,249.99"; missing values count as 0.0."""
+        if value is None:
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        parsed = cls.parse_currency(str(value))
+        return parsed if parsed is not None else 0.0
+
     @staticmethod
     def parse_currency(text: str) -> Optional[float]:
         """Utility to safely extract price float from raw strings (e.g. '$1,249.99' -> 1249.99)"""
@@ -188,7 +209,32 @@ class CartInvariantAuditor:
         return float(match.group(0)) if match else None
 
 
-if __name__ == "__main__":
+def _cli(argv: List[str]) -> int:
+    """Usage: cart_invariants_auditor.py --requested req.json --cart cart.json [--total 34.99]
+    [--max-budget N] [--allow-shipping-tax] [--max-shipping-tax N]. Exit 0 if valid, 1 if not, 2 on bad input."""
+    ap = argparse.ArgumentParser(description="Audit a cart against the items the user asked for.")
+    ap.add_argument("--requested", required=True, help="JSON file: [{title, max_unit_price, quantity}]")
+    ap.add_argument("--cart", required=True, help="JSON file: [{title, price, quantity, id}]")
+    ap.add_argument("--total", type=float, default=None, help="displayed order total")
+    ap.add_argument("--max-budget", type=float, default=None)
+    ap.add_argument("--allow-shipping-tax", action="store_true")
+    ap.add_argument("--max-shipping-tax", type=float, default=None)
+    args = ap.parse_args(argv)
+    try:
+        with open(args.requested, encoding="utf-8") as f:
+            requested = json.load(f)
+        with open(args.cart, encoding="utf-8") as f:
+            cart = json.load(f)
+        auditor = CartInvariantAuditor(requested, args.max_budget, args.allow_shipping_tax, args.max_shipping_tax)
+        result = auditor.audit(cart, args.total)
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0 if result["is_valid"] else 1
+
+
+def _selftest() -> None:
     # Test 1: CodeRabbit scenario - computed 21.99, displayed 34.99, max_budget=None
     # Must report violation by default
     auditor1 = CartInvariantAuditor(
@@ -252,4 +298,16 @@ if __name__ == "__main__":
     assert res5["is_valid"]
     assert len(res5["violations"]) == 0
 
+    # Test 6: explicitly requested add-on is authorized, unrequested one is not; "multiple" is not "tip"
+    a6 = CartInvariantAuditor(requested_items=[{"title": "Laptop"}, {"title": "Laptop Warranty"}])
+    r6 = a6.audit([{"title": "Laptop", "price": "$1,000.00"}, {"title": "Laptop Warranty", "price": 50},
+                   {"title": "Multiple cable", "price": 5}])
+    assert r6["unauthorized_count"] == 1 and r6["stealth_count"] == 1, r6
+
     print("All CartInvariantAuditor tests passed successfully!")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        sys.exit(_cli(sys.argv[1:]))
+    _selftest()
