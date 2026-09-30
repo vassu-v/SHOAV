@@ -1,23 +1,23 @@
 ---
-name: auto-browser
+name: shoav
 description: >-
-  Connect to and drive the local Auto Browser MCP server (visible Chromium, session id, live
-  view link). Use when a task needs a real browser: opening pages, reading them, clicking,
+  Connect to and drive the local SHOAV MCP server, a guarded reworked Auto Browser (visible Chromium, session id,
+  live view link). Use when a task needs a real browser: opening pages, reading them, clicking,
   typing, taking screenshots. Also covers how to start the server if it is not running,
   what the tools are, and what to tell the user when a session starts.
 ---
 
-# Auto Browser MCP
+# SHOAV MCP
 
 A local MCP server that drives a **visible** Chromium window. Every session gets an id and a
 link the user can open to watch what you do, live, in a normal browser tab.
 
-Everything here is local to this folder. Do not edit global agent or CLI settings.
+Paths below are relative to the SHOAV repo root. Everything here is local to this folder. Do not edit global agent or CLI settings.
 
 ## 1. Is it running?
 
 ```powershell
-.\auto-browser\scripts\start-local.ps1 -Port 18500 -Status
+.\server\scripts\start-local.ps1 -Port 18500 -Status
 ```
 
 - `up   http://127.0.0.1:18500/mcp` : go to step 3.
@@ -28,18 +28,18 @@ Health URL: `GET http://127.0.0.1:18500/healthz` returns `{"status":"ok"}`.
 ## 2. Start it
 
 ```powershell
-.\auto-browser\scripts\start-local.ps1 -Port 18500 -Background   # returns when healthy
-.\auto-browser\scripts\start-local.ps1 -Port 18500 -Stop         # stops it and its browser
+.\server\scripts\start-local.ps1 -Port 18500 -Background   # returns when healthy
+.\server\scripts\start-local.ps1 -Port 18500 -Stop         # stops it and its browser
 ```
 
 - If port 18500 is taken by something else, the script refuses. Choose another port with
   `-Port 8100` and use that port everywhere below. Do not kill a process you did not start.
-- Data goes to `auto-browser\.local-data\<port>\`. Logs: `controller.log` / `controller.log.err` there.
+- Data goes to `server\.local-data\<port>\`. Logs: `controller.log` / `controller.log.err` there.
 - `-AllowedHosts "example.com,*.wikipedia.org"` restricts which sites the browser may open
   (default `*`, loopback only). `-Headless` hides the window; the default is a visible window.
 - Needs Python 3.10+ with the controller requirements and `python -m playwright install chromium`.
 
-The live view UI (Next.js) is separate: `cd auto-browser\live-ui; npm install; npm run build; npm start`
+The live view UI (Next.js) is separate: `cd server\live-ui; npm install; npm run build; npm start`
 serves `http://127.0.0.1:3200`. Pass `-LiveUiBaseUrl` to the script if you use another port.
 Without the UI running, the MCP still works; only the watch link will not open.
 
@@ -49,19 +49,19 @@ Endpoint: `http://127.0.0.1:18500/mcp` (Streamable HTTP, JSON-RPC 2.0).
 
 Claude Code (project scope, `.mcp.json` in your working dir):
 ```json
-{ "mcpServers": { "auto-browser": { "type": "http", "url": "http://127.0.0.1:18500/mcp" } } }
+{ "mcpServers": { "shoav": { "type": "http", "url": "http://127.0.0.1:18500/mcp" } } }
 ```
 
 Antigravity `agy` (workspace scope, `.agents/mcp_config.json`; tested):
 ```json
-{ "mcpServers": { "auto-browser": { "type": "http", "url": "http://127.0.0.1:18500/mcp" } } }
+{ "mcpServers": { "shoav": { "type": "http", "url": "http://127.0.0.1:18500/mcp" } } }
 ```
 agy rejects tool names containing a dot, so the controller must run with `MCP_TOOL_NAME_STYLE=underscore`
 (`start-local.ps1` sets it). Tools then appear as `browser_observe`; the server accepts either spelling.
-In `agy -p` (non-interactive) mode MCP calls need an allow rule such as `mcp(auto-browser/*)`.
+In `agy -p` (non-interactive) mode MCP calls need an allow rule such as `mcp(shoav/*)`.
 
 Any other MCP client: use the HTTP URL. A stdio bridge also exists:
-`python auto-browser\scripts\mcp_stdio_bridge.py` with env `AUTO_BROWSER_BASE_URL=http://127.0.0.1:18500/mcp`.
+`python server\scripts\mcp_stdio_bridge.py` with env `AUTO_BROWSER_BASE_URL=http://127.0.0.1:18500/mcp`.
 
 ## 4. Workflow
 
@@ -133,7 +133,7 @@ and has an extra text block with the banner. It looks like:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ AUTO BROWSER  live view                                  │
+│ SHOAV  live view                                         │
 │ session  a5af842a89e1                                    │
 │ watch    http://127.0.0.1:3200/s/a5af842a89e1            │
 └──────────────────────────────────────────────────────────┘
@@ -173,7 +173,7 @@ tell the user.
 
 ## 9. SHOAV guard demo
 
-- Template pack: `shoav-mcp/MCP/agent-template/` (`AGENT_START.md` first, then `SETUP.md`, `OUTPUTS.md`).
-- Start with `-Port 18500 -Guard enforce` (never port 8000). Guard notes arrive inside the result dict
+- Setup guide: `AGENTS.md` at the repo root (or run `shoav install`). Start the server with `shoav start`.
+- Start with `shoav start --guard enforce` (default port 18500, never port 8000). Guard notes arrive inside the result dict
   (`_shoav` on rewrite; `error` plus `shoav` on block or escalate). Blocked clicks: do not retry, re-observe
   or request human takeover.
