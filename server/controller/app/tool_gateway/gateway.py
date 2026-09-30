@@ -4,10 +4,13 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 from urllib.parse import urlparse
 
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from pydantic import BaseModel, ValidationError
 
 from ..action_errors import BrowserActionError
@@ -83,6 +86,55 @@ from .packs import register_all
 from .registry import ToolRegistry, ToolSpec
 
 logger = logging.getLogger(__name__)
+
+# Error text returned to MCP clients must not carry local filesystem paths
+# (artifact dirs, data roots): they mean nothing to the agent and leak host layout.
+_LOCAL_PATH_RE = re.compile(
+    r"(?:(?<![A-Za-z0-9+.\-])[A-Za-z]:[\\/]|\\\\)[^\s'\"<>|:*?]+(?:[\\/][^\s'\"<>|:*?]+)*"
+    r"|(?<![\w.:/])/(?:app|usr|home|tmp|opt|data|var|root|srv|Users)/[^\s'\"<>]*"
+)
+
+
+def _scrub_text(text: str) -> str:
+    """Replace absolute filesystem paths in an error message with <path>."""
+    return _LOCAL_PATH_RE.sub("<path>", text) if isinstance(text, str) else text
+
+
+def _contains_true_flag(value: Any, key: str, depth: int = 0) -> bool:
+    if depth > 6:
+        return False
+    if isinstance(value, dict):
+        if value.get(key) is True:
+            return True
+        return any(_contains_true_flag(item, key, depth + 1) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_true_flag(item, key, depth + 1) for item in value[:50])
+    return False
+
+
+def _looks_like_local_path(value: str) -> bool:
+    return bool(re.match(r"^(?:[A-Za-z]:[\\/]|\\\\|\\[A-Za-z]|/(?!artifacts/|s/|live|mcp))", value))
+
+
+def _scrub_local_paths(value: Any) -> Any:
+    """Drop `*_path` keys that hold local filesystem paths from an error payload.
+
+    The matching `*_url` keys (served artifact URLs) are kept, so nothing an agent
+    can use is lost. Only error payloads go through this; success results are unchanged.
+    """
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if isinstance(key, str) and key.endswith("_path") and isinstance(item, str) and _looks_like_local_path(item):
+                continue
+            if key in ("error", "reason", "message") and isinstance(item, str):
+                cleaned[key] = _scrub_text(item)
+                continue
+            cleaned[key] = _scrub_local_paths(item)
+        return cleaned
+    if isinstance(value, list):
+        return [_scrub_local_paths(item) for item in value]
+    return value
 
 # Bound on the in-page text walk for find_elements' query mode — a
 # catastrophically backtracking regex would otherwise hang page.evaluate
@@ -250,6 +302,8 @@ class McpToolGateway:
             _GuardCache = None  # type: ignore[assignment]
         self._shoav_cache = _GuardCache() if _GuardCache is not None else None
         self._shoav_sessions_fallback: dict[str, dict[str, Any]] = {}
+        # Values typed with sensitive=true, redacted from every later result.
+        self._sensitive_values: list[str] = []
         # Unknown values fall back to curated (same rule as ToolRegistry).
         normalized_profile = (tool_profile or "").strip().lower()
         self.tool_profile = (
@@ -297,6 +351,8 @@ class McpToolGateway:
                         live_call.finish(self._error_response("Tool call aborted"), error="Tool call aborted")
                     )
                 raise
+            # Before the live timeline records it: no result may echo a sensitive typed value.
+            response = self._redact_sensitive_response(response)
             if live_call is not None:
                 response = await asyncio.shield(live_call.finish(response))
             if response._omit_structured:
@@ -346,6 +402,7 @@ class McpToolGateway:
                 return self._error_response(
                     "harness service unavailable - check controller startup logs and HARNESS_* config"
                 )
+            self._coerce_stringified_json_fields(raw_arguments, ("action",))
             arguments = spec.input_model.model_validate(raw_arguments)
             arguments = await self._resolve_implicit_session(spec, arguments, live_call)
             if live_call is not None:
@@ -359,7 +416,9 @@ class McpToolGateway:
             egress_block = await self._shoav_egress_check(spec, arguments, live_call)
             if egress_block is not None:
                 return egress_block
+            self._note_sensitive_typing(spec, arguments)
             result = await spec.handler(arguments)
+            self._note_sensitive_typing(spec, arguments, result)
             if approval is not None:
                 await self.manager.approvals.mark_executed(approval.id)
             posthoc_block = await self._shoav_posthoc_check(spec, arguments, result, live_call)
@@ -374,14 +433,21 @@ class McpToolGateway:
             response._omit_structured = isinstance(result, dict) and isinstance(result.get("_mcp_text"), str)
             return response
         except ApprovalRequiredError as exc:
-            detail = exc.payload
+            detail = _scrub_local_paths(dict(exc.payload))
+            approval_id = (detail.get("approval") or {}).get("id") if isinstance(detail.get("approval"), dict) else None
+            if approval_id:
+                detail.setdefault(
+                    "next_step",
+                    f"Ask the user to approve it ({self._tool_ref('browser.approve_approval')} "
+                    f"approval_id={approval_id}), then repeat this call with approval_id={approval_id}.",
+                )
             return McpToolCallResponse(
                 content=[McpToolCallContent(text=json.dumps(detail, ensure_ascii=False))],
                 structuredContent=detail,
                 isError=True,
             )
         except BrowserActionError as exc:
-            detail = exc.payload
+            detail = _scrub_local_paths(exc.payload)
             return McpToolCallResponse(
                 content=[McpToolCallContent(text=json.dumps(detail, ensure_ascii=False))],
                 structuredContent=detail,
@@ -395,16 +461,168 @@ class McpToolGateway:
                 for err in exc.errors()
             )
             return self._error_response(f"Invalid arguments for {payload.name}: {details}")
-        except (ValueError, KeyError, RuntimeError) as exc:
+        except KeyError as exc:
+            # Lookups raise KeyError(<id>) for an unknown session, job, approval, run or
+            # skill. A bare id is not actionable, so name what was missing and how to
+            # find valid ids.
+            return self._error_response(self._not_found_message(spec, payload.arguments, exc))
+        except (ValueError, RuntimeError) as exc:
             # Handlers raise these with operator-facing messages ("Provide
             # source_selector or source_x/source_y", "Memory profile not found").
             # Surface them so the calling agent can self-correct, instead of
             # collapsing them into the opaque catch-all below.
-            message = str(exc.args[0]) if exc.args else exc.__class__.__name__
-            return self._error_response(message)
+            message = str(exc.args[0]) if exc.args else ""
+            if not message.strip():
+                logger.exception("tool %s failed", payload.name)
+                return self._error_response(self._internal_error_message(spec))
+            return self._error_response(_scrub_text(message))
+        except PermissionError as exc:
+            # Approval/policy refusals ("approval X is not approved", "approval X does not
+            # belong to session Y") are operator-facing; surface them with a next step.
+            message = _scrub_text(str(exc.args[0]) if exc.args else "") or "The call was not permitted"
+            return self._error_response(
+                f"Not permitted: {message}. Check the approval with "
+                f"{self._tool_ref('browser.list_approvals')}, or ask the user to approve it."
+            )
+        except (PlaywrightError, asyncio.TimeoutError) as exc:
+            # Browser-side failures (timeouts, unreachable pages, closed targets).
+            logger.info("tool %s browser error: %s", payload.name, exc)
+            return self._error_response(self._browser_error_message(spec, exc))
         except Exception:
             logger.exception("tool %s failed", payload.name)
-            return self._error_response("Tool execution failed")
+            return self._error_response(self._internal_error_message(spec))
+
+    # ── sensitive typed values ──────────────────────────────────────────────
+    # A value typed with sensitive=true (or into a password field) must never come
+    # back in a later result, error payload or timeline event: page scripts can echo
+    # a focused field's value (active_element.label, snapshot textbox values).
+    # Values shorter than this are not redacted globally (too likely to collide with
+    # ordinary text); the page scripts no longer read field values for labels anyway.
+    SENSITIVE_MIN_CHARS = 4
+    SENSITIVE_MAX_VALUES = 64
+    SENSITIVE_PLACEHOLDER = "[redacted]"
+
+    def _note_sensitive_typing(self, spec: ToolSpec, arguments: BaseModel, result: Any = None) -> None:
+        if spec.name != "browser.execute_action":
+            return
+        decision = getattr(arguments, "action", None)
+        if getattr(decision, "action", None) != "type":
+            return
+        text = getattr(decision, "text", None)
+        if not isinstance(text, str) or len(text) < self.SENSITIVE_MIN_CHARS:
+            return
+        auto_detected = isinstance(result, dict) and _contains_true_flag(result, "text_redacted")
+        if not (getattr(decision, "sensitive", False) or auto_detected):
+            return
+        values = self._sensitive_values
+        if text not in values:
+            values.append(text)
+            del values[: max(0, len(values) - self.SENSITIVE_MAX_VALUES)]
+
+    def _redact_sensitive(self, value: Any) -> Any:
+        values = self._sensitive_values
+        if not values:
+            return value
+        if isinstance(value, str):
+            for secret in values:
+                if secret in value:
+                    value = value.replace(secret, self.SENSITIVE_PLACEHOLDER)
+            return value
+        if isinstance(value, dict):
+            return {key: self._redact_sensitive(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._redact_sensitive(item) for item in value]
+        return value
+
+    def _redact_sensitive_response(self, response: McpToolCallResponse) -> McpToolCallResponse:
+        if not self._sensitive_values:
+            return response
+        for block in response.content:
+            if block.type == "text" and isinstance(block.text, str):
+                block.text = self._redact_sensitive(block.text)
+        if response.structuredContent is not None:
+            response.structuredContent = self._redact_sensitive(response.structuredContent)
+        return response
+
+    # ── error messages (actionable, no internals) ───────────────────────────
+
+    def _tool_ref(self, canonical: str) -> str:
+        """A tool name in the spelling this server advertises (browser_observe or browser.observe)."""
+        return self._registry._advertised_name(canonical, self._registry.name_style)
+
+    def _internal_error_message(self, spec: ToolSpec) -> str:
+        return (
+            f"Tool execution failed: {self._tool_ref(spec.name)} hit an unexpected internal error. "
+            f"Retry once; if it fails again, re-observe the page or start a fresh session with "
+            f"{self._tool_ref('browser.create_session')}, and check the controller log."
+        )
+
+    # id argument -> (what it names, list tool that shows valid ids)
+    _NOT_FOUND_HINTS: dict[str, tuple[str, str]] = {
+        "session_id": ("Session", "browser.list_sessions"),
+        "approval_id": ("Approval", "browser.list_approvals"),
+        "run_id": ("Harness run", "harness.list_runs"),
+        "skill_id": ("Harness skill candidate", "harness.list_candidates"),
+        "profile_name": ("Profile", "browser.list_auth_profiles"),
+    }
+
+    def _not_found_message(self, spec: ToolSpec, raw_arguments: Any, exc: KeyError) -> str:
+        key = exc.args[0] if exc.args else None
+        text = str(key) if key is not None else ""
+        # Handlers that already raise a sentence ("Cron job not found: x") keep it.
+        if text and (" " in text.strip()):
+            return _scrub_text(text)
+        arguments = raw_arguments if isinstance(raw_arguments, dict) else {}
+        for field, value in arguments.items():
+            if value != key or not isinstance(value, str):
+                continue
+            if field == "session_id":
+                return (
+                    f"Session {value!r} was not found or is already closed. Call "
+                    f"{self._tool_ref('browser.list_sessions')} to see live sessions, or "
+                    f"{self._tool_ref('browser.create_session')} to open a new one."
+                )
+            if field == "job_id":
+                return (
+                    f"Agent job {value!r} was not found. Call "
+                    f"{self._tool_ref('browser.list_agent_jobs')} to see known jobs."
+                )
+            if field == "profile_name" and "memory" in spec.name:
+                return (
+                    f"Memory profile {value!r} was not found. Call "
+                    f"{self._tool_ref('browser.list_memory_profiles')} to see saved profiles."
+                )
+            hint = self._NOT_FOUND_HINTS.get(field)
+            if hint is not None:
+                label, list_tool = hint
+                return f"{label} {value!r} was not found. Call {self._tool_ref(list_tool)} to see valid values."
+        if text:
+            return f"Not found: {_scrub_text(text)!r}. Check the id or name you passed and list the available items first."
+        return self._internal_error_message(spec)
+
+    def _browser_error_message(self, spec: ToolSpec, exc: BaseException) -> str:
+        tool = self._tool_ref(spec.name)
+        first_line = _scrub_text((str(exc) or "").strip().splitlines()[0] if str(exc).strip() else "").strip()
+        lowered = first_line.lower()
+        if isinstance(exc, asyncio.TimeoutError) or isinstance(exc, PlaywrightTimeoutError) or "timeout" in lowered:
+            return (
+                f"{tool} timed out ({first_line or 'no response in time'}). The page may still be loading or "
+                "the element does not exist: re-observe the page, then retry with another selector or a "
+                "longer timeout_ms."
+            )
+        if "net::err_" in lowered or "econnrefused" in lowered or "ns_error" in lowered:
+            return (
+                f"{tool} could not reach the target ({first_line}). Check that the URL or endpoint is "
+                "correct and reachable, then retry."
+            )
+        if "has been closed" in lowered or "target closed" in lowered:
+            return (
+                f"{tool} failed because the browser page for this session was closed. Start a new session "
+                f"with {self._tool_ref('browser.create_session')}."
+            )
+        return (
+            f"{tool} failed in the browser ({first_line or 'no detail'}). Re-observe the page and retry."
+        )
 
     @staticmethod
     def _pack_result(result: Any) -> tuple[Any, list[McpToolCallContent]]:
@@ -1656,6 +1874,13 @@ class McpToolGateway:
         expected_ref = element_id or selector
         if not session_id or not expected_ref:
             return None
+        if not element_id and selector:
+            # The focus probe reports the focused element's data-operator-id, so a
+            # selector-typed field must be compared by its ref too. Comparing the raw
+            # selector string blocked every sensitive/password type made by selector.
+            resolved = await self._shoav_resolve_selector_ref(session_id, selector)
+            if resolved:
+                expected_ref = resolved
         expected_value = getattr(decision, "text", "") or ""
         sensitive = bool(getattr(decision, "sensitive", False))
         try:
@@ -1667,6 +1892,19 @@ class McpToolGateway:
             return None
         if not isinstance(focus, dict):
             return None
+        if expected_ref == selector and not focus.get("ref"):
+            # No operator ref on the field (page not observed yet): check the focused
+            # element against the selector itself.
+            try:
+                matches = await session.page.evaluate(
+                    "(sel) => { try { const el = document.activeElement;"
+                    " return !!(el && el.matches(sel)); } catch (e) { return false; } }",
+                    selector,
+                )
+            except Exception:
+                matches = False
+            if matches is True:
+                focus = {**focus, "ref": selector}
         verdict, reason = await self._shoav_decide_input(
             expected_ref, expected_value, focus, sensitive=sensitive
         )
@@ -1909,6 +2147,27 @@ class McpToolGateway:
         return meta
 
     @staticmethod
+    def _coerce_stringified_json_fields(raw_arguments: dict[str, Any], fields: tuple[str, ...]) -> None:
+        """Some MCP clients (observed: OpenCode with certain free models) serialize a
+        nested-object argument as a JSON string instead of a JSON object, because the
+        tool's inputSchema exposes it as a bare $ref and the model does not resolve it.
+        When that happens, decode the string in place before pydantic validation runs,
+        so a well-formed JSON string works exactly like the object it encodes. A string
+        that is not valid JSON, or that decodes to something other than a dict, is left
+        untouched — pydantic reports the real type error either way.
+        """
+        for field in fields:
+            value = raw_arguments.get(field)
+            if not isinstance(value, str):
+                continue
+            try:
+                decoded = json.loads(value)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(decoded, dict):
+                raw_arguments[field] = decoded
+
+    @staticmethod
     def _pop_policy_profile(spec: ToolSpec, raw_arguments: dict[str, Any]) -> str:
         profile = str(raw_arguments.pop("policy_profile", "") or raw_arguments.get("workflow_profile") or "fast")
         if "workflow_profile" not in spec.input_model.model_fields:
@@ -1936,6 +2195,11 @@ class McpToolGateway:
         session_id = getattr(arguments, "session_id", None)
         if not session_id:
             return None
+        # An unknown or closed session must fail as "session not found", not park an
+        # approval for a browser that does not exist.
+        live = getattr(self.manager, "sessions", None)
+        if isinstance(live, dict) and session_id not in live:
+            raise KeyError(session_id)
         decision = getattr(arguments, "action", None)
         if not isinstance(decision, BrowserActionDecision):
             decision = BrowserActionDecision(
@@ -2089,6 +2353,21 @@ class McpToolGateway:
         return await self.manager.reject(payload.approval_id, comment=payload.comment)
 
     async def _execute_approval(self, payload: ApprovalIdInput) -> dict[str, Any]:
+        # Approvals parked by a governed tool call (eval_js, save_auth_profile, ...) carry a
+        # placeholder request_human_takeover decision; executing that failed with
+        # "Unsupported action". They are consumed by repeating the tool call instead.
+        getter = getattr(getattr(self.manager, "approvals", None), "get", None)
+        if callable(getter):
+            approval = await getter(payload.approval_id)
+            decision = getattr(approval, "action", None)
+            reason = str(getattr(decision, "reason", "") or "")
+            prefix = "Approve governed MCP tool call "
+            if getattr(decision, "action", None) == "request_human_takeover" and reason.startswith(prefix):
+                tool = self._tool_ref(reason[len(prefix):].strip())
+                raise ValueError(
+                    f"Approval {payload.approval_id} gates a governed {tool} call and is not executed on "
+                    f"its own. Once it is approved, repeat the {tool} call with approval_id={payload.approval_id}."
+                )
         return await self.manager.execute_approval(payload.approval_id)
 
     async def _list_agent_jobs(self, payload: ListAgentJobsInput) -> list[dict[str, Any]]:
@@ -2179,10 +2458,25 @@ class McpToolGateway:
             url_contains=payload.url_contains,
         )
 
+    async def _require_known_session(self, session_id: str | None) -> None:
+        """Raise KeyError(session_id) unless the session is live or has a stored record.
+
+        Witness tools work on closed sessions too (receipts outlive the browser), but
+        an id that never existed used to verify as an empty, "valid" chain.
+        """
+        if not session_id:
+            return
+        live = getattr(self.manager, "sessions", None)
+        if isinstance(live, dict) and session_id in live:
+            return
+        await self.manager.get_session_record(session_id)
+
     async def _verify_witness(self, payload: VerifyWitnessInput) -> dict[str, Any]:
+        await self._require_known_session(payload.session_id)
         return await self.manager.verify_witness_chain(payload.session_id)
 
     async def _export_witness_bundle(self, payload: VerifyWitnessInput) -> dict[str, Any]:
+        await self._require_known_session(payload.session_id)
         return await self.manager.export_witness_bundle(payload.session_id)
 
     async def _fork_session(self, payload: ForkSessionInput) -> dict[str, Any]:
