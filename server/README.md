@@ -1,3 +1,14 @@
+# SHOAV server
+
+This folder is the SHOAV server: the MCP browser server behind S.H.O.A.V. (AI Bodyguard), a reworked
+Auto Browser with the deterministic guard from `../guard/` wired into the tool gateway. MCP clients
+connect to it as `shoav`. Start it with `server/scripts/start-local.ps1`; the live view UI is in `live-ui/`.
+
+Based on Auto Browser by LvcidPsyche (MIT). See [LICENSE](./LICENSE) and [CHANGELOG.md](./CHANGELOG.md).
+The upstream README follows unchanged.
+
+---
+
 # Auto Browser
 
 [![MCP Toplist](https://mcptoplist.com/badge/glama%2FLvcidPsyche%2Fauto-browser.svg)](https://mcptoplist.com/server/glama%2FLvcidPsyche%2Fauto-browser)
