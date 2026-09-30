@@ -1,11 +1,11 @@
 """Regression for live failure "T3 prechecked toggle visible (off)".
 
 Spec source (read first, not fixed):
-  shoav-mcp/t5_e2e/run_t5.py run_off_mode T3 block: snapshot of
+  e2e/run_t5.py run_off_mode T3 block: snapshot of
     fixtures/prechecked.html must contain "mkt-optin", submit via
     browser.execute_action on #submit-btn must not set isError, and the
     follow-up snapshot must contain "SHOAV_T5_SUBMITTED".
-  shoav-mcp/fixtures/prechecked.html: form #signup-form with
+  e2e/fixtures/prechecked.html: form #signup-form with
     input#mkt-optin checked plus label text about marketing newsletter,
     plus button#submit-btn and result marker SHOAV_T5_NOT_SUBMITTED_YET.
 
@@ -38,12 +38,12 @@ import json
 from pathlib import Path
 
 T5_DIR = Path(__file__).resolve().parent
-SHOAV_MCP = T5_DIR.parent
-FIXTURE_PATH = SHOAV_MCP / "fixtures" / "prechecked.html"
+GUARD_ROOT = T5_DIR.parent / "guard"
+FIXTURE_PATH = T5_DIR / "fixtures" / "prechecked.html"
 
 
 def _load_module(stem):
-    base = SHOAV_MCP / "connectors" / (stem + ".py")
+    base = GUARD_ROOT / "connectors" / (stem + ".py")
     if not base.is_file():
         return None
     spec = importlib.util.spec_from_file_location("shoav_reg_" + stem, str(base))
