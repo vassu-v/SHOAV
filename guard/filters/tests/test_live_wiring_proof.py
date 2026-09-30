@@ -256,21 +256,16 @@ class TestFormStateLiveProbe(unittest.TestCase):
 
 class TestFloodLiveProbe(unittest.TestCase):
     def test_flood_probe_counts_flow_pre_caps_and_block(self):
-        # NOTE: the primary flood signal is now raw_interactive_fanout, not
-        # raw_element_count (see constants.py / rules.evaluate_flood_signal).
-        # server/controller/app/tool_gateway/gateway.py's _shoav_flood_probe
-        # and the raw-probe forwarding in this worktree still only read and
-        # forward flood["element_count"] -> raw_element_count; it does not
-        # yet read/forward an interactive_fanout value from FLOOD_PROBE_SCRIPT.
-        # That gateway-side wiring lives in a different, already-merged
-        # worktree (worktree-agent-ad537acb98c236358) and is out of scope
-        # for this filters-only test fix. Until the gateway forwards
-        # raw_interactive_fanout, this flow only has raw_element_count=720
-        # available, which is now below the (now much higher) raw element
-        # backstop threshold, so the correct current-code verdict is ALLOW,
-        # not BLOCK. Flip this back to BLOCK (and start reading a fanout
-        # value from the flood probe) once the gateway forwards fan-out.
-        flood = {"element_count": 720, "text_chars": 900}
+        # The primary flood signal is raw_interactive_fanout (most
+        # interactive elements under one parent), not raw_element_count
+        # (see constants.py / rules.evaluate_flood_signal). gateway.py's
+        # _shoav_add_flood_facts maps FLOOD_PROBE_SCRIPT's
+        # "interactive_fanout" key to the ingress payload's
+        # "raw_interactive_fanout" key, so this flow carries the fan-out
+        # value end to end once merged with the gateway-side wiring
+        # (worktree-agent-ad537acb98c236358). 720 filler buttons under one
+        # parent is well past the fan-out threshold, so the flow blocks.
+        flood = {"element_count": 720, "text_chars": 900, "interactive_fanout": 720}
         page = FakePage(flood=flood, mutation={"count": 1, "seconds": 5.0, "rate": 0.2})
         gw = _gateway(page)
         self.assertEqual(_run(gw._shoav_flood_probe("s1")), flood)
@@ -279,8 +274,9 @@ class TestFloodLiveProbe(unittest.TestCase):
         payload = {"interactables": [], "text_excerpt": "Catalog",
                    "accessibility_outline": {"nodes": []}}
         res = IngressFilter().process(payload, raw_element_count=720,
-                                      raw_text_chars=900, mutation=mut)
-        self.assertEqual(res["verdict"], Verdict.ALLOW)
+                                      raw_text_chars=900,
+                                      raw_interactive_fanout=720, mutation=mut)
+        self.assertEqual(res["verdict"], Verdict.BLOCK)
 
     def test_flood_html_shape_blocks_benign_allows(self):
         html = (ROOT.parent / "e2e" / "fixtures" / "flood.html").read_text(encoding="utf-8")
