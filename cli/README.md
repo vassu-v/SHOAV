@@ -76,6 +76,9 @@ With `--what mcp` or `both`, a "Browsing with SHOAV" block is also added to
 
 `SHOAV_HOME` (default `~/.shoav`) holds `venv/` and `data/<port>/` with
 `controller.log`, `controller.pid`, `ui.log`, `ui.pid` and the server's data.
+It also holds `live-ui/`, a copy of the live view that `--ui` builds when the package
+sits inside `node_modules` (npx, `npm install -g`) or is read-only, since Next.js will
+not compile sources inside `node_modules`. A clone builds `server/live-ui` in place.
 Chromium goes to Playwright's normal cache (`PLAYWRIGHT_BROWSERS_PATH` is honoured).
 
 ## Troubleshooting
@@ -89,6 +92,8 @@ Chromium goes to Playwright's normal cache (`PLAYWRIGHT_BROWSERS_PATH` is honour
 - Agent does not see the tools: restart the agent after install; for Claude Code
   approve the `shoav` server from `.mcp.json` when asked; run `shoav doctor`.
 - Live view link does not open: the UI is separate, start it with `shoav start --ui`.
+- `live view UI build failed`: the controller and MCP still run. Build the UI from a
+  clone instead: `cd server/live-ui && npm install && npm run build && npm start`.
 - `skip ... not valid JSON`: your config has comments or a syntax error; add the
   printed snippet by hand.
 

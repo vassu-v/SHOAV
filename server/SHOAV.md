@@ -1,7 +1,7 @@
 # The SHOAV server
 
 This folder is the S.H.O.A.V. MCP server: a browser MCP server with a deterministic guard in the path. It is a reworked copy of
-[Auto Browser](https://github.com/LvcidPsyche/auto-browser) by LvcidPsyche (MIT). The upstream README is [`README.md`](README.md), and
+[Auto Browser](https://github.com/LvcidPsyche/auto-browser) by LvcidPsyche (MIT, copyright JAI Studios). The upstream README is [`README.md`](README.md), and
 the upstream changelog and licence are in [`CHANGELOG.md`](CHANGELOG.md) and [`LICENSE`](LICENSE). Credit for the browser control,
 the tool gateway and most of the controller belongs to that project.
 
@@ -106,7 +106,7 @@ controller, the origin you opened does not match `LIVE_UI_BASE_URL` / `LIVE_UI_O
 | Mode | Behaviour |
 |---|---|
 | off | No guard, no cost |
-| observe | Checks run, findings are logged and annotated with a `_shoav` note, results are never changed |
+| observe | Checks run and findings are logged. Content is never rewritten and actions are never blocked; a flagged result only gains an informational `_shoav` note (`enforced: false`) |
 | enforce | Rewrites and blocks apply. ALLOW, REWRITE, ESCALATE and BLOCK are described in [`../guard/README.md`](../guard/README.md) |
 
 Verify a running server with the synthetic pages: [`../e2e/README.md`](../e2e/README.md). Measured results and the wiring plan are in

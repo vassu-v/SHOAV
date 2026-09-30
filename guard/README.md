@@ -18,7 +18,7 @@ Other files: [`DETERMINISTIC_TARGETS.md`](DETERMINISTIC_TARGETS.md) (the target 
 |---|---|
 | ALLOW | Nothing found, the result passes unchanged |
 | REWRITE | Dangerous parts are removed and the cleaned result is returned with a `_shoav` note |
-| ESCALATE | Suspicious but not provable. The action is held and the agent is told to re-check or ask a human |
+| ESCALATE | Suspicious but not provable. On egress (clicks and submits) in enforce mode the action is held and the agent is told to re-check or ask a human. On ingress an ESCALATE verdict is currently logged and counted but the result is returned as is; holding it there is being added |
 | BLOCK | Unsafe. The action is aborted or the page is refused, with the reason |
 
 ## What it checks
@@ -27,13 +27,13 @@ Other files: [`DETERMINISTIC_TARGETS.md`](DETERMINISTIC_TARGETS.md) (the target 
 |---|---|---|
 | Hidden text injection | Ingress | Computed visibility and geometry, zero-width and instruction patterns. Hidden nodes are stripped |
 | Invisible overlay over the real button | Egress | `document.elementFromPoint` at the click target against the element the agent meant |
-| Pre-checked consent boxes | Egress | Form state at read time against submit time. An untouched pre-ticked box holds the submit |
-| Context flooding | Ingress | Node and text budgets. Over the trigger the page is capped or blocked |
+| Pre-checked consent boxes | Egress | Form state at read time against submit time. An untouched pre-ticked box holds a selector-based submit; a submit clicked by `element_id` can currently skip this check (fix in progress) |
+| Context flooding | Ingress | Node and text budgets. Over the trigger the page is capped or blocked. A mutation-rate check also reads a live MutationObserver feed; its thresholds and timing are still being tuned |
 
 ## Modes
 
-The server switches the guard with `SHOAV_GUARD_MODE`: `off` (no guard), `observe` (checks run and are logged, results are
-never changed), `enforce` (rewrites and blocks apply). A crashing filter fails open unless `SHOAV_GUARD_FAIL=closed`. The server
+The server switches the guard with `SHOAV_GUARD_MODE`: `off` (no guard), `observe` (checks run and are logged; content is
+never rewritten and actions are never blocked, but a flagged result carries an informational `_shoav` note), `enforce` (rewrites and blocks apply). A crashing filter fails open unless `SHOAV_GUARD_FAIL=closed`. The server
 finds this folder by default, or from `SHOAV_FILTERS_PATH`. See [`../server/SHOAV.md`](../server/SHOAV.md).
 
 ## Run the unit tests
@@ -50,6 +50,6 @@ The end to end matrix against a running server is in [`../e2e/README.md`](../e2e
 
 ## Limits
 
-Thresholds are heuristics until tuned on real traffic. Iframe and Shadow DOM hit testing, a live mutation-rate feed, text
-inside images and site specific cart checks are not covered. Wording tricks such as confirmshaming are left to the
+Thresholds are heuristics until tuned on real traffic, including the mutation-rate thresholds now that its live feed is
+wired. Iframe and Shadow DOM hit testing, text inside images and site specific cart checks are not covered. Wording tricks such as confirmshaming are left to the
 [defence skill](../skills/defense/README.md). See [`../docs/DESIGN.md`](../docs/DESIGN.md).

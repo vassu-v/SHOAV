@@ -1,5 +1,9 @@
 # MCP/plan.md: integrating the S.H.O.A.V. filters into the Auto Browser MCP
 
+> **Historical document.** The integration-phase wiring plan from 2026-09-25, kept as a record. Its paths
+> (`shoav-mcp/...`) predate the restructure; the old to current path map is in [`README.md`](README.md). For the current
+> state see [`AGENTS.md`](../../AGENTS.md) and [`docs/OVERVIEW.md`](../OVERVIEW.md).
+
 Self-contained plan. Hand this file to any lead agent and tell it to run subagents per category below.
 Everything here is grounded in a read-only research pass over `shoav-mcp/MCP/auto-browser` and `shoav-mcp/filters`
 (line numbers are approximate, from 2026-09-25; re-check before editing).

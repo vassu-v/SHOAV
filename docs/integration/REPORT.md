@@ -1,5 +1,11 @@
 # S.H.O.A.V. MCP Report — guarded Auto Browser copy in shoav-mcp
 
+> **Historical document.** This is the integration-phase report from 2026-09-26, kept as a record of what was measured
+> then. Its paths (`shoav-mcp/...`, `MCP/shoav/cli.py`), commands and details such as the guard loader root (`parents[5]`,
+> now `parents[4]` in `server/controller/app/guard/loader.py`) predate the restructure and are not current. The old to
+> current path map is in [`README.md`](README.md). For the current state and how to run things, see
+> [`AGENTS.md`](../../AGENTS.md), [`docs/OVERVIEW.md`](../OVERVIEW.md) and [`server/SHOAV.md`](../../server/SHOAV.md).
+
 Date: 2026-09-26. Scope: Targets 1-4 only (hidden text, overlay, prechecked consent, flood). Target 5 (cart) untouched and unwired. No commits made; all work is uncommitted in `shoav-mcp`.
 
 ## 0. Copy, ports, run commands

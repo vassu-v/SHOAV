@@ -156,7 +156,8 @@ export async function runStart(parsed, { env = process.env } = {}) {
 
   log.info();
   log.info(`${c.bold('MCP url')}    ${base}/mcp`);
-  log.info(`${c.bold('Live view')}  ${UI_BASE}/s/<session id>${uiUp ? '' : c.dim('  (UI not running; add --ui to serve it)')}`);
+  const note = liveViewNote({ requested: Boolean(parsed.flags.ui), up: uiUp });
+  log.info(`${c.bold('Live view')}  ${UI_BASE}/s/<session id>${note ? c.dim(note) : ''}`);
   log.info(`${c.bold('Guard')}      ${shownGuard}`);
   log.info();
   log.info(`${c.bold('Next')}: point your agent at the MCP url (shoav install), then ask it to browse.`);
@@ -219,6 +220,31 @@ function copyUiSources(src, dest) {
   }
 }
 
+// Next.js will not compile app sources that sit under a node_modules folder:
+// Turbopack panics ("Expected process result to be a module") and webpack
+// fails with "Module parse failed" on the first TSX file. npx and global npm
+// installs put the package at .../node_modules/shoav, so the UI must be built
+// from a copy outside node_modules.
+export function insideNodeModules(dir) {
+  return path.resolve(dir).split(/[\\/]+/).includes('node_modules');
+}
+
+// Why the UI must be built from a copy under SHOAV_HOME, or null to build in place.
+export function uiCopyReason(dir, isWritable = writable) {
+  if (insideNodeModules(dir)) return 'package dir is inside node_modules, where Next.js will not compile it';
+  if (!isWritable(dir)) return 'package dir is read-only';
+  return null;
+}
+
+export const UI_MANUAL_HINT = 'The controller and MCP url still work. To run the live view by hand from a clone: '
+  + 'git clone https://github.com/vassu-v/SHOAV && cd SHOAV/server/live-ui && npm install && npm run build && npm start';
+
+// The Live view line of the start summary.
+export function liveViewNote({ requested, up }) {
+  if (up) return '';
+  return requested ? '  (UI failed to start; see the warning above)' : '  (UI not running; add --ui to serve it)';
+}
+
 function npm(args, opts) {
   // npm is a .cmd on Windows, which needs a shell. Arguments are fixed strings.
   return spawnSync(isWin ? 'npm.cmd' : 'npm', args, { stdio: 'inherit', shell: isWin, windowsHide: true, ...opts });
@@ -239,9 +265,10 @@ async function startUi({ port, env, files }) {
     return false;
   }
   let dir = LIVE_UI_DIR;
-  if (!writable(dir)) {
+  const copyReason = uiCopyReason(dir);
+  if (copyReason) {
     dir = path.join(shoavHome(env), 'live-ui');
-    log.step(`Copying the live view UI to ${dir} (package dir is read-only)`);
+    log.step(`Copying the live view UI to ${dir} (${copyReason})`);
     copyUiSources(LIVE_UI_DIR, dir);
   }
   const controller = controllerUrl(port);
@@ -249,14 +276,14 @@ async function startUi({ port, env, files }) {
   if (!fs.existsSync(path.join(dir, 'node_modules', 'next'))) {
     log.step('Installing live view UI dependencies (npm install)');
     if (npm(['install', '--no-audit', '--no-fund'], { cwd: dir, env: buildEnv }).status !== 0) {
-      log.warn('npm install failed; continuing without the UI.');
+      log.warn(`npm install for the live view UI failed in ${dir}; continuing without the UI. ${UI_MANUAL_HINT}`);
       return false;
     }
   }
   if (uiBuildNeeded(dir, controller)) {
-    log.step('Building the live view UI (npm run build)');
+    log.step(`Building the live view UI in ${dir} (npm run build)`);
     if (npm(['run', 'build'], { cwd: dir, env: buildEnv }).status !== 0) {
-      log.warn('UI build failed; continuing without the UI.');
+      log.warn(`live view UI build failed in ${dir}; continuing without the UI. ${UI_MANUAL_HINT}`);
       return false;
     }
     fs.writeFileSync(path.join(dir, '.next', 'shoav-controller-url'), controller);
