@@ -1,6 +1,6 @@
 """T-4 live event tests (spec only, fake live layer, no real controller).
 
-Spec source: shoav-mcp/MCP/plan.md sections 5-6.
+Spec source: docs/integration/plan.md sections 5-6.
 Contracts:
 - Guard event shape with required keys; type override of tool default.
 - End event carries a guard summary.

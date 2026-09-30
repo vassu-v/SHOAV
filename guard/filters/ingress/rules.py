@@ -31,14 +31,26 @@ from ..constants import (
 from ..types import Verdict
 
 
-def _is_offscreen(rect: dict, viewport: dict) -> bool:
-    right = rect.get("right", 0)
-    bottom = rect.get("bottom", 0)
-    left = rect.get("left", 0)
-    top = rect.get("top", 0)
+def _is_offscreen(rect: dict, viewport: dict, scroll: dict | None = None, doc: dict | None = None) -> bool:
+    """True when the box sits outside the page itself, where nobody can scroll to it.
+
+    Position is judged in document coordinates (viewport rect plus scroll offset). An element
+    below the fold or past the first screen is ordinary content, not hidden. Facts from an older
+    probe without scroll and document size are judged on the negative and horizontal sides only.
+    """
+    sx = float((scroll or {}).get("x", 0) or 0)
+    sy = float((scroll or {}).get("y", 0) or 0)
+    left = rect.get("left", 0) + sx
+    right = rect.get("right", 0) + sx
+    top = rect.get("top", 0) + sy
+    bottom = rect.get("bottom", 0) + sy
     width = viewport.get("width", 0)
     height = viewport.get("height", 0)
-    fully_outside = right < 0 or bottom < 0 or left > width or top > height
+    doc_width = max(float((doc or {}).get("width", 0) or 0), float(width or 0))
+    fully_outside = right < 0 or bottom < 0 or left > doc_width
+    if doc:
+        doc_height = max(float(doc.get("height", 0) or 0), float(height or 0))
+        fully_outside = fully_outside or top > doc_height
     return fully_outside or left < INGRESS_OFFSCREEN_LEFT_PX
 
 
@@ -71,7 +83,7 @@ def find_hidden_textful_nodes(style_facts: list[dict]) -> dict:
             or node.get("visibility") == "hidden"
             or node.get("opacity", 1.0) < INGRESS_OPACITY_THRESHOLD
             or node.get("font_size", 1.0) <= INGRESS_MIN_FONT_SIZE_PX
-            or _is_offscreen(rect, viewport)
+            or _is_offscreen(rect, viewport, node.get("scroll"), node.get("doc"))
         )
         if not hidden:
             continue

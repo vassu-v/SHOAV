@@ -1,6 +1,6 @@
 """F-A hidden-text REWRITE regression tests (spec only).
 
-Spec source: shoav-mcp/MCP/plan.md section 5.
+Spec source: docs/integration/plan.md section 5.
 Target 1: hidden text prompt injection removed from agent view.
 
 Level (a): IngressFilter.process strips opacity:0 and display:none
@@ -28,7 +28,7 @@ from filters.ingress.engine import IngressFilter  # noqa: E402
 from filters.types import Verdict  # noqa: E402
 
 GUARD_FILE = (
-    SHOAV_ROOT / "MCP" / "auto-browser" / "controller" / "app"
+    SHOAV_ROOT.parent / "server" / "controller" / "app"
     / "guard" / "guard.py"
 )
 

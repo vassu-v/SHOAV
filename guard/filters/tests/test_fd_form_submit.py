@@ -1,7 +1,7 @@
 """F-D spec tests: form_controls flag plus submission audit (Target 3).
 
-Spec sources: shoav-mcp/MCP/plan.md section 5 points 6-8 and
-shoav-mcp/filters/plan.md tasks F-1/F-3.
+Spec sources: docs/integration/plan.md section 5 points 6-8 and
+guard/filters/plan.md tasks F-1/F-3.
 
 Covered here, from spec only:
 - IngressFilter.process accepts form_controls directly (FORM_STATE_SCRIPT
