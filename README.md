@@ -22,7 +22,7 @@
 
 <a href="docs/DESIGN.md">Design</a> &nbsp;·&nbsp;
 <a href="AGENTS.md">Connect an agent</a> &nbsp;·&nbsp;
-<a href="shoav-skill/">Skill</a> &nbsp;·&nbsp;
+<a href="skills/README.md">Skills</a> &nbsp;·&nbsp;
 <a href="docs/research/">Research</a>
 
 <br>
@@ -68,6 +68,111 @@ whatever agent you run.
 S.H.O.A.V. is a browser MCP server with a deterministic guard in the path, plus a portable skill for agents that keep their
 own browser. Any MCP capable agent can use it, and a human can watch every session in a live view.
 
+## What is MCP?
+
+The Model Context Protocol (MCP) is a standard way for an agent to call tools. An MCP server hands the agent a set of
+tools, and here those tools drive a real browser. The agent needs no plugin and no code change, it only needs to be
+pointed at the server's URL.
+
+## What is in this repo
+
+| Folder | What it is | Who needs it |
+|---|---|---|
+| [`server/`](server/SHOAV.md) | The SHOAV MCP server: a reworked Auto Browser with a real Chromium, a live view and the guard in the path | Anyone who wants enforcement |
+| [`guard/`](guard/README.md) | The deterministic filters (`filters/`) and the adapters that connect them to the server (`connectors/`) | Contributors, and anyone auditing the rules |
+| [`skills/`](skills/README.md) | Two agent skills: `guide/` teaches an agent (and you) how to start and drive the MCP; `defense/` is the defence manual and audit scripts for agents that keep their own browser (advice only) | Every agent that uses the MCP (guide); agents with their own browser (defence) |
+| [`cli/`](cli/README.md) | The `shoav` installer and runner: writes agent config, starts and stops the server | Everyone, it is the easy path |
+| [`e2e/`](e2e/README.md) | Synthetic attack and benign pages, and the runner that checks off, observe and enforce | Contributors, and anyone verifying an install |
+| [`docs/`](docs/README.md) | Design notes, overview, the integration report and the research | Readers who want the evidence |
+| `web/` | The project website | Nobody needs it to run the product |
+| `assets/` | Images used by the docs | Nobody |
+
+## Choose your path
+
+| Path | What you get | Limits |
+|---|---|---|
+| Skill only | A defence manual and audit scripts your own agent follows in its own browser | Advice. Nothing is enforced, and the agent can ignore it |
+| MCP only | A real browser for the agent, with the guard rewriting and blocking in the path, and a live view | The agent must use these tools for all browsing, and structural checks miss wording tricks like fake urgency |
+| Both (recommended) | Enforcement for the structural traps, plus advice on the wording tricks a structural check cannot see | Each part keeps its own limits |
+
+The skill is advice. The MCP enforces.
+
+## Quick start
+
+You need Python 3.11+ and Node.js 18+. Everything runs locally.
+
+1. **Get the `shoav` command once.** It is a small Node CLI with no dependencies.
+
+   ```bash
+   npm install -g github:vassu-v/SHOAV
+   ```
+
+   Prefer not to install it globally? Prefix any command below with `npx github:vassu-v/SHOAV`.
+
+2. **Install into a project.** From the folder your agent works in, run the interactive installer, or pass flags.
+
+   ```bash
+   shoav install
+   # or non-interactive, for example Claude Code with both parts:
+   shoav install --what both --agent claude --yes
+   ```
+
+3. **Start the server.** The first run creates a virtual environment in `~/.shoav`, installs the Python dependencies and Chromium.
+
+   ```bash
+   shoav start --ui
+   ```
+
+4. **Run your agent in that folder** and open the live link it prints for each session, `http://127.0.0.1:3200/s/<id>`.
+
+Check the setup with `shoav status` and `shoav doctor`. Per-agent details, the file lists and troubleshooting are in
+[`AGENTS.md`](AGENTS.md). Full CLI reference: [`cli/README.md`](cli/README.md).
+
+<details>
+<summary>Manual path, without the CLI</summary>
+
+```powershell
+# Windows, from the server folder
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 18500 -Guard enforce -Background
+```
+
+```bash
+# Linux and macOS, from server/controller, after pip install -r requirements.txt
+# and python -m playwright install chromium
+SHOAV_GUARD_MODE=enforce MCP_TOOL_NAME_STYLE=underscore ALLOWED_HOSTS='*' \
+  python -m uvicorn app.main:app --host 127.0.0.1 --port 18500
+```
+
+Then add the MCP to your agent by hand, for example `claude mcp add --transport http shoav http://127.0.0.1:18500/mcp` or
+`agy mcp add --type http shoav http://127.0.0.1:18500/mcp`. The live view starts separately from `server/live-ui`
+(`npm install`, `npm run build`, `npm start`). Copy-paste config for each agent is in
+[`AGENTS.md`](AGENTS.md#manual-setup-without-the-cli), and server details are in [`server/SHOAV.md`](server/SHOAV.md).
+
+</details>
+
+## What you will see
+
+Every session prints a live link, `http://127.0.0.1:3200/s/<id>`. Open it to watch each tool call, the latest screenshot,
+and a guard badge on any row the guard touched. After the session closes, the same link is a read-only archive.
+
+| Verdict | Badge | What the agent gets back |
+|---|---|---|
+| ALLOW | none | The normal result |
+| REWRITE | amber | The normal result with dangerous text removed, and a leading `_shoav` note listing the findings |
+| ESCALATE | orange | An error saying the action is suspicious but not provable, for example a form submitted with an untouched pre-ticked box. Re-check the form or ask a human |
+| BLOCK | red | An error saying what was in the way, for example an invisible layer over the button. The agent should not retry the click |
+
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screens/02-live-dark.png">
+  <img src="assets/screens/02-live-light.png" alt="live session view with tool timeline and latest screenshot" width="820">
+</picture><br><sub>The live view of an agent session. Guard badges appear on the tool rows.</sub></p>
+
+## Use it in one project only
+
+By default the installer works at project scope. It writes config only inside the directory you choose, so only agents
+started in that folder get the SHOAV tools, and nothing global is touched. `--scope user` is there if you want it
+everywhere. The exact files per agent are listed in [`AGENTS.md`](AGENTS.md#scoping-to-one-directory).
+
 ## Our approach: Tool-First Agent Diagnostic Design
 
 Put the guard where every agent has to pass, at the browser. One MCP server owns the browser and checks each step.
@@ -106,95 +211,10 @@ Every result is one of four verdicts:
   <img src="assets/readme/verdicts-light.svg" alt="ALLOW, REWRITE, ESCALATE, BLOCK" width="600">
 </picture></p>
 
-## Quick start
-
-You need Python 3.11+, Node.js (for the live view only) and Chromium (`python -m playwright install chromium`).
-
-```powershell
-# 1. start the MCP. Guard mode is off, observe or enforce
-cd shoav-mcp\MCP\auto-browser
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 18500 -Guard enforce -Background
-
-# 2. start the live view (second terminal, from shoav-mcp\MCP\auto-browser\live-ui)
-npm install; npm run build; npm start
-
-# 3. connect an agent
-agy mcp add --type http auto-browser http://127.0.0.1:18500/mcp
-```
-
-Every session prints a watch link like `http://127.0.0.1:3200/s/<id>`. Open it to see the agent work. Per-agent setup is in
-[`AGENTS.md`](AGENTS.md). Design, limits and evidence are in [`docs/DESIGN.md`](docs/DESIGN.md).
-
-Try the guard without an agent: `python shoav-mcp/t5_e2e/run_t5.py --controller http://127.0.0.1:18500 --fixture-port 18631 --mode enforce`
-serves the synthetic attack pages and prints a pass or fail line per check.
-
-## The MCP
-
-`shoav-mcp/MCP/` is a reworked [Auto Browser](https://github.com/LvcidPsyche/auto-browser): one server that owns a real
-Chromium and speaks MCP over HTTP. We kept its browser control and added:
-
-- **The guard** in the tool gateway, behind `SHOAV_GUARD_MODE=off|observe|enforce`. Off costs nothing. Observe logs and
-  annotates but never changes a result. Enforce rewrites and blocks. A crashing filter fails open unless
-  `SHOAV_GUARD_FAIL=closed`.
-- **A live view** per session: every tool call, the latest screenshot, guard badges, and a read-only archive afterwards.
-- **Tool profiles.** 37 curated tools by default, 74 full, or a 10 tool minimal profile (`MCP_TOOL_PROFILE=minimal`) that keeps the
-  tool list small for the agent. Names use underscores so `agy` accepts them.
-- **A CLI** for humans: `python shoav-mcp/MCP/shoav/cli.py status`, `create-session`, `events <id>`.
-- **Native run.** No Docker, visible browser, one start script.
-
-Where the guard hooks in: egress before the click or drag handler runs, ingress after observe, snapshot, find elements and
-get HTML return. A rewrite lands in both the text and the structured half of the MCP result, because different clients read
-different halves.
-
-Measured on 2026-09-26 (real Chromium, synthetic pages):
-
-| Guard mode | Checks passed |
-|---|---|
-| off (attacks succeed, no guard markers) | 22 / 22 |
-| observe (notes only) | 17 / 17 |
-| enforce (rewrite and block) | 27 / 27 |
-
-A real `agy` run confirmed hidden text stripped and the overlay click blocked with no retry by the agent. Suites: 268 tests for
-filters, connectors and CLI, 1148 for the controller, plus live UI lint, typecheck and vitest. Full report:
-[`shoav-mcp/MCP/REPORT.md`](shoav-mcp/MCP/REPORT.md).
-
-## The skill
-
-`shoav-skill/` is for agents that already have a browser and cannot be pointed at ours. It is a portable defence manual
-(`SKILL.md`) built on invariants: WCAG contrast maths, coordinate hit tests, zero-default form auditing and semantic
-normalisation, plus fallback audit scripts for bare environments.
-
-```bash
-node shoav-skill/bin/cli.js --target claude    # or cursor, agy
-```
-
-The skill covers what a structural check cannot: confirmshaming, fake urgency, trick wording. It is advice. The MCP is
-enforcement. Use both when you can. Details in [`shoav-skill/README.md`](shoav-skill/README.md).
-
-## Repository
-
-```
-shoav-mcp/
-  filters/      the guard core: pure Python rules, probes, session state, tests
-  connectors/   adapters between MCP payloads and the filters
-  MCP/          the browser MCP (auto-browser/), live UI, CLI, agent templates, plan and report
-  fixtures/     tiny synthetic attack and benign pages
-  t5_e2e/       end to end runner for off, observe and enforce
-shoav-skill/    agent skill, audit scripts, npx installer
-web/            the project website
-docs/           design notes and research
-assets/         images
-AGENTS.md       how any agent connects
-```
-
-## See what your agent is doing
-
-Every session gets a link. Watch each tool call, what the agent read, what it clicked, and what the guard did about it.
-
-<p align="center"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screens/02-live-dark.png">
-  <img src="assets/screens/02-live-light.png" alt="live session view with tool timeline and latest screenshot" width="820">
-</picture><br><sub>The live view of an agent session. Guard badges appear on the tool rows.</sub></p>
+Guard modes are set with `--guard` on the CLI, or `SHOAV_GUARD_MODE` on the server: `off` costs nothing, `observe` logs and
+annotates but never changes a result, `enforce` rewrites and blocks. A crashing filter fails open unless
+`SHOAV_GUARD_FAIL=closed`. Rules are in [`guard/README.md`](guard/README.md), the server in [`server/SHOAV.md`](server/SHOAV.md),
+and the synthetic pages plus the check runner in [`e2e/README.md`](e2e/README.md).
 
 ## Tech stack
 
@@ -204,22 +224,28 @@ Every session gets a link. Watch each tool call, what the agent read, what it cl
   <tr><td><b>Browser</b></td><td><img src="https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" alt="Playwright"> <img src="https://img.shields.io/badge/Chromium-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chromium"></td></tr>
   <tr><td><b>Live view</b></td><td><img src="https://skillicons.dev/icons?i=nextjs,ts,tailwind" alt=""> <img src="https://img.shields.io/badge/shadcn/ui-000000?style=for-the-badge&logo=shadcnui&logoColor=white" alt="shadcn/ui"></td></tr>
   <tr><td><b>State</b></td><td><img src="https://skillicons.dev/icons?i=sqlite" alt=""> <sub>audit, approvals, per-session timelines. All local.</sub></td></tr>
-  <tr><td><b>Skill</b></td><td><img src="https://skillicons.dev/icons?i=nodejs,py" alt=""> <img src="https://img.shields.io/badge/Agent_Skill-7c3aed?style=for-the-badge&logo=markdown&logoColor=white" alt="Agent_Skill"> <sub>npx installer</sub></td></tr>
-  <tr><td><b>Tests</b></td><td><img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://skillicons.dev/icons?i=vitest" alt=""> <img src="https://img.shields.io/badge/real_Chromium_probes-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" alt="real_Chromium_probes"></td></tr>
+  <tr><td><b>Skill and CLI</b></td><td><img src="https://skillicons.dev/icons?i=nodejs,py" alt=""> <img src="https://img.shields.io/badge/Agent_Skill-7c3aed?style=for-the-badge&logo=markdown&logoColor=white" alt="Agent_Skill"> <sub>installed by the <code>shoav</code> CLI</sub></td></tr>
+  <tr><td><b>Tests</b></td><td><img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://skillicons.dev/icons?i=vitest" alt=""> <img src="https://img.shields.io/badge/node:test-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="node:test"> <img src="https://img.shields.io/badge/real_Chromium_probes-2EAD33?style=for-the-badge&logo=playwright&logoColor=white" alt="real_Chromium_probes"></td></tr>
   <tr><td><b>Test clients</b></td><td><img src="https://img.shields.io/badge/agy-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="agy"></td></tr>
 </table>
 
 <sub>Python 3.11+ for the server. The guard rules are pure functions over plain data, so each one is testable without a browser.</sub>
 
-## Where we are
+## Status and honest limits
 
 | Part | State |
 |------|-------|
-| Detection core `shoav-mcp/filters/` | Done. Tested, JS probes verified in a real browser. |
-| Browser MCP `shoav-mcp/MCP/` | Working natively with a live view. |
-| Guard wiring | Done. Hooked into the gateway, 27 / 27 enforce checks, real `agy` run confirmed. |
-| Skill `shoav-skill/` | Done. Portable manual, audit scripts, `npx` installer. |
-| Status | Alpha, under active development. See the roadmap above. |
+| Guard `guard/` | Done. Tested, JS probes verified in a real browser. |
+| Server `server/` | Working natively with a live view. Guard hooked into the gateway. |
+| Skills `skills/` | Defence skill done (manual and audit scripts). Guide skill added (how to drive the MCP, tested recipes). |
+| CLI `cli/` | In development. |
+| Status | Alpha, under active development. |
+
+Measured on 2026-09-26 with a real Chromium on synthetic pages: enforce 27/27, observe 17/17, off 22/22 checks
+([report](docs/integration/REPORT.md)). A real `agy` run confirmed hidden text stripped and the overlay click blocked.
+Only `agy` has been measured as a client. Claude Code, OpenCode, Codex and Cursor are supported by configuration but not yet
+measured. Tool profiles: 37 curated tools by default, 74 full, 10 with `MCP_TOOL_PROFILE=minimal`. Thresholds are heuristics
+until tuned on real traffic. More in [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/OVERVIEW.md`](docs/OVERVIEW.md).
 
 ## Roadmap
 
@@ -230,8 +256,7 @@ What is next, in no fixed order:
 - Tune thresholds on real page traffic
 - ESCALATE instead of BLOCK for legitimate modals
 - Measure more agent clients (Claude Code, OpenCode)
-- Rename the server identity from `auto-browser` to `shoav`
-- Publish the skill package to npm
+- Publish the CLI and skill package to npm
 - Evaluate against public agent benchmarks such as TrickyArena
 
 <details>
@@ -245,7 +270,8 @@ element under the click or it does not. A model may advise, and it can only rais
 <details>
 <summary>My agent already has a browser. Do I need the MCP?</summary>
 
-You can use the skill alone for advice, but only the MCP enforces. If you can, point the agent at the MCP instead.
+You can use the skill alone for advice, but only the MCP enforces. If you can, point the agent at the MCP instead, or
+install both with `--what both`.
 
 </details>
 
