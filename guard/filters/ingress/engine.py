@@ -11,7 +11,11 @@ and the mutation-flood check only when a live mutation_rate is supplied
 
 from __future__ import annotations
 
-from ..constants import INGRESS_NODE_BUDGET_TRIGGER
+from ..constants import (
+    INGRESS_LABEL_FIELDS,
+    INGRESS_MUTATION_MIN_WINDOW_SECONDS,
+    INGRESS_NODE_BUDGET_TRIGGER,
+)
 from ..session_state import SessionState
 from ..types import Verdict
 from . import rules
@@ -29,6 +33,7 @@ class IngressFilter:
         raw_element_count: int | None = None,
         raw_text_chars: int | None = None,
         mutation: dict | None = None,
+        raw_interactive_fanout: int | None = None,
     ) -> dict:
         """payload: an Auto Browser observation-shaped dict, at minimum
         {"interactables": [...], "text_excerpt": "...",
@@ -40,12 +45,17 @@ class IngressFilter:
         label, name}). Correlation prefers ref, then element_id, then name.
         When None (default), falls back to the accessibility_outline path.
 
-        raw_element_count / raw_text_chars: FLOOD_PROBE_SCRIPT output
-        measured BEFORE caps; None skips that signal (fail-open).
+        raw_element_count / raw_text_chars / raw_interactive_fanout:
+        FLOOD_PROBE_SCRIPT output (element_count, text_chars,
+        interactive_fanout) measured BEFORE caps; None skips that signal
+        (fail-open).
         mutation: MUTATION_OBSERVER_READ_SCRIPT output
-        ({count, seconds, rate}); when supplied it feeds the mutation-rate
-        flood check, with mutation_rate kept as a backwards-compatible
-        override (explicit mutation_rate wins when both are given).
+        ({count, seconds, rate, insufficient}); when supplied it feeds the
+        mutation-rate flood check, with mutation_rate kept as a
+        backwards-compatible override (explicit mutation_rate wins when both
+        are given). A mutation dict whose window is shorter than
+        INGRESS_MUTATION_MIN_WINDOW_SECONDS, or marked insufficient, carries
+        no rate evidence and is ignored.
         """
         interactables = list(payload.get("interactables", []))
         text_excerpt = payload.get("text_excerpt", "") or ""
@@ -60,6 +70,17 @@ class IngressFilter:
                 node for node in interactables
                 if node.get("element_id") not in stripped_refs
             ]
+
+        # Element names (label, aria-label, placeholder, title...) reach the
+        # agent just like body text, so an injection hidden in them is
+        # scrubbed the same way. Accessibility-outline node names too.
+        interactables, label_findings = rules.scrub_label_fields(interactables, INGRESS_LABEL_FIELDS)
+        clean_outline = payload.get("accessibility_outline")
+        if ax_nodes:
+            clean_ax_nodes, ax_label_findings = rules.scrub_label_fields(list(ax_nodes), INGRESS_LABEL_FIELDS)
+            if ax_label_findings:
+                label_findings = label_findings + ax_label_findings
+                clean_outline = {**(clean_outline or {}), "nodes": clean_ax_nodes}
 
         hidden_texts = [entry.get("text") or entry.get("snippet") or "" for entry in style_result["stripped"]]
         clean_text, removed_count = rules.sanitize_text(text_excerpt, hidden_texts)
@@ -109,25 +130,34 @@ class IngressFilter:
         effective_mutation_rate = mutation_rate
         if effective_mutation_rate is None and isinstance(mutation, dict):
             try:
-                rate = mutation.get("rate")
-                if rate is None:
-                    count = float(mutation.get("count", 0))
-                    seconds = float(mutation.get("seconds", 0))
-                    rate = (count / seconds) if seconds > 0 else 0.0
-                effective_mutation_rate = float(rate)
+                seconds_raw = mutation.get("seconds")
+                too_short = bool(mutation.get("insufficient")) or (
+                    seconds_raw is not None
+                    and float(seconds_raw) < INGRESS_MUTATION_MIN_WINDOW_SECONDS
+                )
+                if too_short:
+                    effective_mutation_rate = None
+                else:
+                    rate = mutation.get("rate")
+                    if rate is None:
+                        count = float(mutation.get("count", 0))
+                        seconds = float(mutation.get("seconds", 0))
+                        rate = (count / seconds) if seconds > 0 else 0.0
+                    effective_mutation_rate = float(rate)
             except (TypeError, ValueError):
                 effective_mutation_rate = None
         raw_flood, raw_reason = rules.evaluate_flood_signal(
             raw_element_count=raw_element_count,
             raw_text_chars=raw_text_chars,
             mutations_per_second=effective_mutation_rate,
+            raw_interactive_fanout=raw_interactive_fanout,
         )
         mutation_flood = raw_flood and raw_reason is not None and "sec exceeds" in raw_reason
         mutation_reason = raw_reason if mutation_flood else None
         flooding = node_flood or raw_flood
 
         stripped_count = len(style_result["stripped"])
-        finding_count = len(text_findings) + len(prechecked) + removed_count
+        finding_count = len(text_findings) + len(prechecked) + removed_count + len(label_findings)
 
         telemetry_lines = ["[S.H.O.A.V. INGRESS SHIELD]"]
         findings = {
@@ -135,6 +165,10 @@ class IngressFilter:
             "hidden_nodes": style_result,
             "prechecked_toggles": prechecked,
         }
+        # Only present when non-empty, so clean pages keep the same
+        # findings groups as before this check existed.
+        if label_findings:
+            findings["label_injections"] = label_findings
 
         if flooding:
             if node_flood:
@@ -171,6 +205,8 @@ class IngressFilter:
         telemetry_lines.append(f"- text/comment injection findings: {len(text_findings)}")
         telemetry_lines.append(f"- text removals from excerpt (hidden text, zero-width chars, injected sentences): {removed_count}")
         telemetry_lines.append(f"- pre-checked consent-like toggles flagged: {len(prechecked)}")
+        if label_findings:
+            telemetry_lines.append(f"- element label injections scrubbed: {len(label_findings)}")
         telemetry_lines.append(
             f"- context compaction: {node_count_before_budget} -> "
             f"{len(compacted_interactables)} nodes"
@@ -188,6 +224,7 @@ class IngressFilter:
                 **payload,
                 "interactables": compacted_interactables,
                 "text_excerpt": truncated_text,
+                **({"accessibility_outline": clean_outline} if label_findings else {}),
             },
             "findings": findings,
         }
