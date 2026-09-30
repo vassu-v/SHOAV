@@ -109,7 +109,7 @@ The research behind the targets is in `docs/research/` (`08-synthesis/SYNTHESIS.
 Detector code and its tests are written by different people. A run passes only if the task completed and there were zero
 compromise events. Unit fixtures are tiny synthetic pages. The malicious test site is maintained separately.
 
-Measured on 2026-09-26 with a real headless Chromium, through `POST /mcp/tools/call`, using `shoav-mcp/t5_e2e/run_t5.py`:
+Measured on 2026-09-26 with a real headless Chromium, through `POST /mcp/tools/call`, using `e2e/run_t5.py`:
 
 | Guard mode | Checks | Result |
 |---|---|---|
@@ -122,20 +122,20 @@ file that also passes); live UI lint, typecheck and vitest pass. A real `agy` ru
 overlay blocked with no retry by the agent.
 
 Not measured: Claude Code as a client, the live mutation-rate feed, screenshot text, and any external site.
-The full report is `shoav-mcp/MCP/REPORT.md`.
+The full report is [`integration/REPORT.md`](integration/REPORT.md).
 
 ## 11. Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Guard core (`shoav-mcp/filters/`) | Python, standard library only | Pure functions over dicts. No browser, network or I/O in the rules, so each rule is unit testable and cannot be reached by page content. |
-| Connectors (`shoav-mcp/connectors/`) | Python, dict in and dict out | Adapters between the MCP payloads and the filter inputs. No controller imports, so they can be tested alone. |
+| Guard core (`guard/filters/`) | Python, standard library only | Pure functions over dicts. No browser, network or I/O in the rules, so each rule is unit testable and cannot be reached by page content. |
+| Connectors (`guard/connectors/`) | Python, dict in and dict out | Adapters between the MCP payloads and the filter inputs. No controller imports, so they can be tested alone. |
 | MCP server | Python 3.11+, FastAPI, uvicorn | MCP over HTTP (JSON-RPC at `/mcp`). Hostable once, usable from any machine on the network. |
 | State | SQLite (`state.db`), JSON and JSONL files | Audit events, approvals, per-session timelines. All local, nothing uploaded. |
 | Browser | Playwright 1.62, Chromium (visible) | Real rendering is required for style, geometry and hit tests. |
 | Live view | Next.js 16, TypeScript, Tailwind CSS 4, shadcn/ui, SSE | A page per session at `/s/<id>`, live and archived. |
-| Skill | Markdown plus Node and Python audit scripts, `npx` installer | Portable to any agent that supports skills or instruction files. |
-| Tests | pytest, vitest, Playwright browser probes | Detector authors and test authors are different people. |
+| Skill and CLI | Markdown plus Node and Python audit scripts, installed by the `shoav` CLI (Node) | Portable to any agent that supports skills or instruction files. |
+| Tests | pytest, vitest, node:test, Playwright browser probes | Detector authors and test authors are different people. |
 | Test clients | agy (measured) | Other MCP clients, such as Claude Code and OpenCode, are on the roadmap. |
 
 ## 12. How it was built
@@ -151,10 +151,12 @@ The full report is `shoav-mcp/MCP/REPORT.md`.
 
 | Path | What is there |
 |---|---|
-| `shoav-mcp/filters/` | Deterministic ingress and egress rules, probes, session state, tests |
-| `shoav-mcp/connectors/` | Payload adapters between the MCP and the filters |
-| `shoav-mcp/MCP/` | The browser MCP server, live UI, start scripts, agent templates, integration plan |
-| `shoav-mcp/fixtures/` | Tiny synthetic pages for unit and end-to-end tests |
-| `shoav-skill/` | The agent skill, its audit scripts and the `npx` installer |
+| `guard/filters/` | Deterministic ingress and egress rules, probes, session state, tests |
+| `guard/connectors/` | Payload adapters between the MCP and the filters |
+| `server/` | The browser MCP server, live UI and start scripts |
+| `cli/` | The `shoav` installer and runner |
+| `e2e/fixtures/` | Tiny synthetic pages for unit and end-to-end tests |
+| `skills/` | The agent skills: `defense/` (defence manual and audit scripts) and `guide/` (how to drive the MCP) |
+| `docs/integration/` | The integration plan and measured report (historical) |
 | `web/` | The project website |
 | `docs/research/` | Evidence base |

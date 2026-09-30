@@ -69,7 +69,7 @@ The product is three tightly integrated components that deliver complete defense
 |    - Deterministic Egress Filter: performs physical hit-testing (elementFromPoint) at   |
 |      action coordinates before execution. Verdicts: ALLOW, BLOCK.                      |
 +----------------------------------------------------------------------------------------+
-| 2. THE SKILL: COGNITIVE VIGILANCE & DARK PATTERN ADVISOR (shoav-skill/, built)         |
+| 2. THE SKILL: COGNITIVE VIGILANCE & DARK PATTERN ADVISOR (skill/, built)         |
 |    - Installable agent skill on dark patterns, human cognitive biases, and psychology. |
 |    - Teaches agents how malicious sites hack heuristics (loss aversion, default effect)|
 |      and how LLM reasoning paradoxically over-rationalizes deceptive UI.               |
@@ -289,22 +289,25 @@ agy --dangerously-skip-permissions --print "Navigate to https://agenttrickydps.v
 
 ### Repository Map
 
+The repo was restructured into a flat layout (`server`, `guard`, `skill`, `cli`, `e2e`). Older log entries above use the old paths (`shoav-mcp/...`, `shoav-skill/`), which map to: `shoav-mcp/MCP/auto-browser` -> `server`, `shoav-mcp/filters` -> `guard/filters`, `shoav-mcp/connectors` -> `guard/connectors`, `shoav-mcp/t5_e2e` -> `e2e`, `shoav-mcp/fixtures` -> `e2e/fixtures`, `shoav-mcp/MCP/{plan,REPORT,README}.md` -> `docs/integration/`, `shoav-skill/skill` -> `skill`. The server identity was renamed from `auto-browser` to `shoav` (MCP key `shoav`).
+
 | Path | Purpose & Contents |
 |------|--------------------|
 | `context.md` | Single source of truth (this document) |
-| `AGENTS.md` / `GEMINI.md` | Universal agent guidance for connecting to the native MCP and live dashboard |
+| `AGENTS.md` / `GEMINI.md` | Set up SHOAV for an agent (CLI, manual config, troubleshooting) |
 | `README.md` | Public project overview |
 | `docs/OVERVIEW.md` | Project overview: problem, solution, architecture, roadmap |
+| `docs/README.md` | Index of the docs |
 | `CLAUDE.md` | Development rules, git conventions, commit author standards |
 | `external/context.auto-browser.md` | Deep technical context and modification log for the Auto-Browser MCP |
 | `external/AGENT_HANDOFF_CONTEXT.md` | Portable agent handoff context brief (copy-pasteable for any LLM/agent) |
-| `shoav-mcp/MCP/` | The product: reworked Auto Browser (`auto-browser/`), live UI, CLI (`shoav/`), agent templates, plan, report |
-| `shoav-mcp/connectors/`, `fixtures/`, `t5_e2e/` | Payload adapters, synthetic pages, the off, observe, enforce runner |
+| `server/` | The product: reworked Auto Browser (native, live UI in `server/live-ui`, guard hooks in `server/controller/app/guard/`). Start notes in `server/SHOAV.md` |
+| `guard/connectors/`, `e2e/` | Payload adapters; synthetic pages (`e2e/fixtures/`) and the off, observe, enforce runner (`e2e/run_t5.py`) |
 | `web/` | Project website (Next.js) |
 | `external/` | Local only, git-ignored, not tracked. Holds third-party clones |
-| `shoav-mcp/filters/` | Deterministic ingress/egress core, session state, tests, plan |
-| `shoav-mcp/MCP/plan.md`, `REPORT.md` | The wiring plan and the measured integration report |
-| `shoav-skill/` | Agent skill, audit scripts, npx installer (Pillar 2) |
+| `guard/filters/` | Deterministic ingress/egress core, session state, tests, plan |
+| `docs/integration/` | The wiring plan and the measured integration report (historical) |
+| `skill/` | Agent skill and audit scripts (Pillar 2). `cli/` | The `shoav` installer and runner, agent doc templates |
 | `external/liteagent/` | TrickyArena benchmark suite and evaluation checks |
 | `docs/research/10-agent-manipulation-and-mitigations/` | Workstream 10: Expanded attack landscape, context overloading, and MCP mitigations |
 | `docs/research/08-synthesis/` | Master synthesis, prioritized detection targets, open questions |
