@@ -23,6 +23,7 @@ from ..constants import (
     INGRESS_MUTATION_RATE_THRESHOLD,
     INGRESS_NODE_BUDGET_TRIGGER,
     INGRESS_RAW_ELEMENT_COUNT_THRESHOLD,
+    INGRESS_RAW_INTERACTIVE_FANOUT_THRESHOLD,
     INGRESS_RAW_TEXT_CHARS_THRESHOLD,
 )
 from ..ingress import rules
@@ -64,8 +65,11 @@ class TestFeRawProbeFlood(unittest.TestCase):
         self.assertIsNone(res["payload"])
 
     def test_720_raw_count_blocks(self):
+        # Primary flood signal is interactive fan-out under one parent
+        # (fixtures/flood.html shape: 720 buttons under #flood-root), not
+        # raw element count.
         res = IngressFilter().process(
-            fx.clean_observation_payload(), raw_element_count=720)
+            fx.clean_observation_payload(), raw_interactive_fanout=720)
         self.assertEqual(res["verdict"], Verdict.BLOCK)
 
     def test_raw_text_chars_block(self):
@@ -75,7 +79,7 @@ class TestFeRawProbeFlood(unittest.TestCase):
         self.assertEqual(res["verdict"], Verdict.BLOCK)
 
     def test_raw_signal_rule_single_trigger(self):
-        flooded, reason = rules.evaluate_flood_signal(raw_element_count=720)
+        flooded, reason = rules.evaluate_flood_signal(raw_interactive_fanout=720)
         self.assertTrue(flooded)
         self.assertIn("720", reason or "")
         flooded, _ = rules.evaluate_flood_signal(

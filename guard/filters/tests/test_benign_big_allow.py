@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..constants import (
     INGRESS_RAW_ELEMENT_COUNT_THRESHOLD,
+    INGRESS_RAW_INTERACTIVE_FANOUT_THRESHOLD,
     INGRESS_RAW_TEXT_CHARS_THRESHOLD,
 )
 from ..ingress import rules
@@ -111,6 +112,7 @@ def parse_fixture(name):
         "element_count": element_count,
         "text_chars": len(text),
         "interactables": len(interactables),
+        "interactive_fanout": filler_extra,
         "payload": payload,
         "form_controls": form_controls,
     }
@@ -123,6 +125,7 @@ def run_parsed(parsed):
         form_controls=parsed["form_controls"],
         raw_element_count=parsed["element_count"],
         raw_text_chars=parsed["text_chars"],
+        raw_interactive_fanout=parsed["interactive_fanout"],
     )
 
 
@@ -161,8 +164,12 @@ class TestBenignAllowEvidence(unittest.TestCase):
 
     def test_thresholds_still_catch_flood_fixture(self):
         parsed = parse_fixture("flood.html")
+        # flood.html's 720 filler buttons are created under one parent
+        # (#flood-root) by script, so the primary flood signal is
+        # interactive fan-out, not raw element count (raw count no longer
+        # trips at this fixture's size; see constants.py).
         self.assertGreater(
-            parsed["element_count"], INGRESS_RAW_ELEMENT_COUNT_THRESHOLD)
+            parsed["interactive_fanout"], INGRESS_RAW_INTERACTIVE_FANOUT_THRESHOLD)
         res = run_parsed(parsed)
         self.assertEqual(res["verdict"], Verdict.BLOCK)
         self.assertIsNone(res["payload"])
