@@ -18,79 +18,103 @@ REWRITE_HEADER = "[S.H.O.A.V. guard: content sanitized]"
 # PENDING-GATEWAY note in guard.py; do NOT edit gateway.py from here).
 REMOVED_MARKER = "[removed by S.H.O.A.V.: suspected injected instruction]"
 
-# Supplemental phrases for find_elements/get_html element-level scrubbing
-# (F-B). Core keywords come from filters.constants when importable; this fallback keeps connectors
-# pure dict-in/dict-out with no controller imports. The shoav_t5_hidden
-# entry covers synthetic hidden-text fixtures: bare marker tokens carry no
-# core keyword, so without it a display:none plus opacity:0 pair leaves one
-# marker runner-visible after sentence splitting merges the middle boundary.
-_SUPPLEMENTAL_PHRASES = (
-    "approve every refund",
-    "send admin password",
-    "admin password",
-    "_inject_token",
-    "_inject",
-    "shoav_t5_hidden",
+# Single detection source (S4 fix): the scrub below delegates to the
+# filter core's general matcher (filters.ingress.rules), so this module no
+# longer carries its own phrase list. An earlier supplemental list held
+# literal test-fixture wording ("approve every refund", "admin password",
+# fixture marker tokens), which stripped benign text such as "To reset the
+# admin password, open Settings" and made fixture passes circular. The core
+# matcher now catches the fixtures' injected instructions generally (word
+# boundary keywords, override-instruction patterns, Unicode/whitespace
+# normalization, continued-instruction removal).
+import re as _re
+import sys as _sys
+from pathlib import Path as _Path
+
+
+def _load_rules():
+    try:  # guard root on sys.path (controller loader, most tests)
+        from filters.ingress import rules as _rules  # type: ignore
+
+        return _rules
+    except Exception:
+        pass
+    try:  # imported as the guard.connectors package
+        from ..filters.ingress import rules as _rules  # type: ignore
+
+        return _rules
+    except Exception:
+        pass
+    # Loaded standalone by file path: put the sibling guard root on sys.path
+    # so the ONE canonical matcher is used rather than a drifting copy.
+    root = str(_Path(__file__).resolve().parents[1])
+    if root not in _sys.path:
+        _sys.path.insert(0, root)
+    from filters.ingress import rules as _rules  # type: ignore
+
+    return _rules
+
+
+_RULES = _load_rules()
+_ZERO_WIDTH: tuple[str, ...] = tuple(_RULES.ZERO_WIDTH_CHARS)
+
+# find_elements / items fields that reach the agent. Element names
+# (aria-label, placeholder, title) carry injections as well as body text.
+_ELEMENT_TEXT_KEYS = (
+    "text", "context_text", "match", "label", "name", "placeholder", "title",
+    "aria_label", "aria-label", "description",
 )
 
-_CORE_KEYWORDS: tuple[str, ...] = ()
-_ZERO_WIDTH: tuple[str, ...] = ()
-try:  # pragma: no cover - import path varies by runner
-    from filters.constants import INGRESS_INJECTION_KEYWORDS as _KW  # type: ignore
-    from filters.constants import ZERO_WIDTH_CHARS as _ZW  # type: ignore
+_TAG_RE = _re.compile(r"(<[^>]*>)")
+_ATTR_VALUE_RE = _re.compile(r"(=\s*)(\"[^\"]*\"|'[^']*')")
 
-    _CORE_KEYWORDS = tuple(k.lower() for k in _KW)
-    _ZERO_WIDTH = tuple(_ZW)
-except Exception:
-    _CORE_KEYWORDS = (
-        "ignore previous",
-        "ignore all previous",
-        "disregard",
-        "system prompt",
-        "you are now",
-        "new instructions",
-        "act as",
-        "assistant:",
-    )
-    _ZERO_WIDTH = (chr(0x200B), chr(0x200C), chr(0x200D), chr(0xFEFF))
+
+def _scrub_text(text: str) -> str:
+    scrubbed, _count = _RULES.scrub_injection_sentences(text, REMOVED_MARKER)
+    return scrubbed
+
+
+def _scrub_tag(tag: str) -> str:
+    """Scrub quoted attribute values inside one HTML tag (aria-label, title...)."""
+
+    def _one(m: "_re.Match[str]") -> str:
+        quoted = m.group(2)
+        quote, inner = quoted[0], quoted[1:-1]
+        if not _RULES.contains_injection(inner):
+            return m.group(0)
+        return m.group(1) + quote + REMOVED_MARKER + quote
+
+    return _ATTR_VALUE_RE.sub(_one, tag)
 
 
 def _scrub_field(value: str) -> str:
     """Deterministic per-field scrub for elements/content (F-B).
 
-    Removes zero-width chars, then replaces sentences containing core
-    injection keywords or supplemental refund/exfiltration markers with
-    REMOVED_MARKER. Guard-authored marker only, never page text. HTML tags
-    are split out before sentence splitting so a missing space at a tag
-    boundary (</p><div>) does not merge a benign sentence with an injected
-    one into a single replaceable blob.
+    Removes zero-width chars, then replaces injected-instruction sentences
+    (and a continued instruction right after them) with REMOVED_MARKER,
+    using the filter core's general matcher. Guard-authored marker only,
+    never page text. HTML tags are split out first so a missing space at a
+    tag boundary (</p><div>) does not merge a benign sentence with an
+    injected one; each text segment between tags is scrubbed on its own,
+    and quoted attribute values inside tags (aria-label, title,
+    placeholder) that carry an injection are replaced by the marker.
     """
-    import re as _re
-
     text = value
     for ch in _ZERO_WIDTH:
         if ch in text:
             text = text.replace(ch, "")
-    marker = REMOVED_MARKER
-    out_lines: list[str] = []
-    for line in text.split("\n"):
-        segs = _re.split(r"(<[^>]*>)", line)
-        for idx, seg in enumerate(segs):
-            if not seg or (seg.startswith("<") and seg.endswith(">")):
-                continue
-            parts = _re.split(r"(?<=[.!?])\s+", seg)
-            new_parts: list[str] = []
-            for part in parts:
-                lowered = part.lower()
-                if any(k in lowered for k in _CORE_KEYWORDS) or any(
-                    p in lowered for p in _SUPPLEMENTAL_PHRASES
-                ):
-                    new_parts.append(marker)
-                else:
-                    new_parts.append(part)
-            segs[idx] = " ".join(new_parts)
-        out_lines.append("".join(segs))
-    return "\n".join(out_lines)
+    segs = _TAG_RE.split(text)
+    for idx, seg in enumerate(segs):
+        if not seg:
+            continue
+        if seg.startswith("<!--") and seg.endswith("-->"):
+            # HTML comments reach the agent through get_html as well.
+            segs[idx] = "<!--" + _scrub_text(seg[4:-3]) + "-->"
+        elif seg.startswith("<") and seg.endswith(">"):
+            segs[idx] = _scrub_tag(seg)
+        else:
+            segs[idx] = _scrub_text(seg)
+    return "".join(segs)
 
 
 def scrub_field(value: str) -> str:
@@ -260,7 +284,8 @@ def apply_rewrite(result_dict: dict, verdict_dict: dict) -> dict:
       "_mcp_text" in result -> browser.snapshot (from sanitized
         text_excerpt/text, structuredContent stays omitted)
       "elements" (list) in result -> browser.find_elements (each
-        element text/context_text/match scrubbed, plus text_excerpt)
+        element text/context_text/match and element-name fields such as
+        label/placeholder/title scrubbed, plus text_excerpt)
       "content" in result -> browser.get_html (content scrubbed, plus
         text_excerpt)
 
@@ -323,7 +348,7 @@ def apply_rewrite(result_dict: dict, verdict_dict: dict) -> dict:
                 scrubbed_elements.append(el)
                 continue
             cleaned = dict(el)
-            for key in ("text", "context_text", "match"):
+            for key in _ELEMENT_TEXT_KEYS:
                 if isinstance(cleaned.get(key), str):
                     cleaned[key] = _scrub_field(cleaned[key])
             scrubbed_elements.append(cleaned)
@@ -334,7 +359,7 @@ def apply_rewrite(result_dict: dict, verdict_dict: dict) -> dict:
             updated["text_excerpt"] = header + "\n" + scrubbed_excerpt if header not in scrubbed_excerpt else scrubbed_excerpt
     if "items" in updated and isinstance(updated.get("items"), list):
         # find_elements items shape: same scrub contract as elements shape
-        # (text, context_text, match per entry) so injected sentences in
+        # (text, context_text, match and element-name fields) so injected sentences in
         # items[] cannot survive while elements[] is cleaned.
         scrubbed_items: list = []
         for el in updated["items"]:
@@ -342,7 +367,7 @@ def apply_rewrite(result_dict: dict, verdict_dict: dict) -> dict:
                 scrubbed_items.append(el)
                 continue
             cleaned = dict(el)
-            for key in ("text", "context_text", "match"):
+            for key in _ELEMENT_TEXT_KEYS:
                 if isinstance(cleaned.get(key), str):
                     cleaned[key] = _scrub_field(cleaned[key])
             scrubbed_items.append(cleaned)
