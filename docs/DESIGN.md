@@ -36,8 +36,8 @@ Targets are drawn from the research in `docs/research/`. Each one is now measure
 |---|---|---|---|---|
 | 1 | Hidden text injection | display:none, opacity 0, font-size 0, off-screen, zero-width characters, HTML comments | ingress | Computed style and geometry, plus a Unicode and keyword scan. The hidden text is removed before the agent reads it. |
 | 2 | Clickjacking overlay | Transparent or stacked element above the real target | egress | `elementFromPoint` at the target centre. If the top element is not the target or one of its children, the click is checked as a decoy. |
-| 3 | Pre-checked consent | Marketing or sharing box already ticked | ingress and egress | Form state captured at load. Flagged at read time. A submit with the box untouched is held before the click reaches the page, even if the agent never called observe first. |
-| 4 | Context flooding | Huge repeated DOM, rapid meaningless mutation | ingress | Node and text budgets are live. A mutation-rate decision function exists but has no live feed yet. |
+| 3 | Pre-checked consent | Marketing or sharing box already ticked | ingress and egress | Form state captured at load. Flagged at read time. A submit with the box untouched is held before the click reaches the page for selector-based clicks, including when the agent never called observe first. A submit clicked by `element_id` can currently skip this check; a fix is in progress and this row will be updated once it is verified. |
+| 4 | Context flooding | Huge repeated DOM, rapid meaningless mutation | ingress | Node and text budgets are live. The mutation-rate check is wired to a live MutationObserver feed on observe and snapshot; its thresholds and sampling window are still being tuned. |
 
 Out of scope by design: cart sneaking (site specific, cannot be hardcoded), language-level dark patterns (skill layer),
 text drawn inside images.
@@ -65,11 +65,12 @@ read only one of them. Guard notes live inside the result itself for the same re
 |---|---|---|
 | ALLOW | Nothing found | The normal result |
 | REWRITE | Something removed or flagged | The result with the dangerous parts removed and a short note saying what was removed |
-| ESCALATE | Suspicious but not provably hostile (for example the click target is covered by an ordinary element, or a form is submitted with an untouched pre-checked consent box) | In enforce mode the action is held and the agent gets an error asking it to re-observe or request human takeover. It is recorded as a guard event and counted. It does not create an approval record; the human decides through the live view. |
+| ESCALATE | Suspicious but not provably hostile (for example the click target is covered by an ordinary element, or a form is submitted with an untouched pre-checked consent box) | In enforce mode an egress action (click or submit) is held and the agent gets an error asking it to re-observe or request human takeover. An ingress ESCALATE is currently logged but the result is returned as is; holding it is being added. It is recorded as a guard event and counted. It does not create an approval record; the human decides through the live view. |
 | BLOCK | Physical obstruction or flood | The action is not performed, with a plain reason |
 
-Modes: `off` (no guard, zero overhead), `observe` (checks run and are logged, nothing is changed), `enforce` (rewrites and blocks
-apply). The default is off. If a filter throws, the call fails open unless the fail policy is set to closed.
+Modes: `off` (no guard, zero overhead), `observe` (checks run and are logged; content is never rewritten and actions are never
+blocked, but a flagged result carries an informational `_shoav` note), `enforce` (rewrites and blocks apply). The server's own
+default is off; the `shoav` CLI and `scripts/start-local.ps1` start it in enforce. If a filter throws, the call fails open unless the fail policy is set to closed.
 
 ## 6. What the human sees
 
@@ -81,7 +82,8 @@ and findings when a row is expanded, and a header chip with the counts. The same
 
 ## 7. What we changed in the base project
 
-The base is Auto Browser (MIT, JAI Studios). We kept its browser control and MCP transport and changed:
+The base is [Auto Browser](https://github.com/LvcidPsyche/auto-browser) by LvcidPsyche (MIT, copyright JAI Studios, see
+`server/LICENSE`). We kept its browser control and MCP transport and changed:
 
 - Runs natively with a visible Chromium, no Docker required.
 - A live per-session view with a Next.js UI, and a timeline of every tool call.
@@ -122,7 +124,7 @@ file that also passes); live UI lint, typecheck and vitest pass. A real `agy` ru
 overlay blocked with no retry by the agent.
 
 Not measured: Claude Code as a client, the live mutation-rate feed, screenshot text, and any external site.
-The full report is [`integration/REPORT.md`](integration/REPORT.md).
+The full report is [`integration/REPORT.md`](integration/REPORT.md), a historical record whose paths predate the restructure.
 
 ## 11. Tech stack
 

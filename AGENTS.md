@@ -90,7 +90,7 @@ defaults and other tools.
 | Mode | Behaviour | Use it for |
 |---|---|---|
 | `off` | No guard | Comparing behaviour with and without SHOAV |
-| `observe` | Checks run and are logged, nothing changes | Trying it on your own tasks without risking broken flows |
+| `observe` | Checks run and are logged. Content is never rewritten and actions are never blocked; a result the guard would have flagged gets an informational `_shoav` note (`enforced: false`) | Trying it on your own tasks without risking broken flows |
 | `enforce` | Rewrites and blocks apply | Real use. This is the default |
 
 A crashing filter fails open unless the server has `SHOAV_GUARD_FAIL=closed`.
@@ -187,7 +187,8 @@ cd server/controller
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 python -m playwright install chromium
-SHOAV_GUARD_MODE=enforce MCP_TOOL_NAME_STYLE=underscore ALLOWED_HOSTS='*' \n  API_BIND_SCOPE=loopback LIVE_UI_BASE_URL=http://127.0.0.1:3200 \
+SHOAV_GUARD_MODE=enforce MCP_TOOL_NAME_STYLE=underscore ALLOWED_HOSTS='*' \
+  API_BIND_SCOPE=loopback LIVE_UI_BASE_URL=http://127.0.0.1:3200 \
   python -m uvicorn app.main:app --host 127.0.0.1 --port 18500
 ```
 
@@ -211,7 +212,10 @@ box add `HEADLESS=true`. More in [`server/SHOAV.md`](server/SHOAV.md).
 Delete the files listed under [Scoping to one directory](#scoping-to-one-directory) for the agents you installed. Remove the
 "Browsing with SHOAV" block from `AGENTS.md`, everything between the two shoav marker comments. If you ran
 `codex mcp add`, remove it with your Codex version's `mcp remove`. Stop the server with `shoav stop`. Local state lives in
-`~/.shoav`, delete that folder to remove the virtual environment and downloaded Chromium.
+`~/.shoav`, delete that folder to remove the virtual environment, session data and the copied live view UI. Chromium is
+not in there: Playwright keeps it in its own shared cache (`%LOCALAPPDATA%\ms-playwright` on Windows, `~/.cache/ms-playwright`
+on Linux, `~/Library/Caches/ms-playwright` on macOS, or `PLAYWRIGHT_BROWSERS_PATH` if you set it). Delete it there if no
+other Playwright project needs it.
 
 ## Quick check
 

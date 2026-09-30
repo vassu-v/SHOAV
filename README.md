@@ -123,6 +123,11 @@ You need Python 3.11+ and Node.js 18+. Everything runs locally.
    shoav start --ui
    ```
 
+   `--ui` builds and serves the live view. Under `npx` or a global install it is built from a copy in `~/.shoav/live-ui`,
+   because Next.js will not compile sources inside `node_modules`. If the UI build still fails, the server and MCP keep
+   working, and you can run the live view from a clone instead:
+   `git clone https://github.com/vassu-v/SHOAV && cd SHOAV/server/live-ui && npm install && npm run build && npm start`.
+
 4. **Run your agent in that folder** and open the live link it prints for each session, `http://127.0.0.1:3200/s/<id>`.
 
 Check the setup with `shoav status` and `shoav doctor`. Per-agent details, the file lists and troubleshooting are in
