@@ -69,10 +69,12 @@ class BrowserActionService:
     ) -> dict[str, Any]:
         session = await self.manager.get_session(session_id)
         target = self.resolve_target(selector=selector, element_id=element_id, x=x, y=y)
+        recheck = self.guard_recheck_enabled()
 
         async def operation() -> None:
             if target["mode"] == "coordinates":
-                await self.click_human_like(session, float(x), float(y))
+                verify = self.overlay_recheck(session, None) if recheck else None
+                await self.click_human_like(session, float(x), float(y), verify=verify)
             else:
                 locator = session.page.locator(target["selector"]).first
                 await locator.scroll_into_view_if_needed()
@@ -81,10 +83,67 @@ class BrowserActionService:
                     await locator.click()
                 else:
                     target["x"], target["y"] = coords
-                    await self.click_human_like(session, coords[0], coords[1])
+                    verify = self.overlay_recheck(session, locator) if recheck else None
+                    await self.click_human_like(session, coords[0], coords[1], verify=verify)
             await self.manager._settle(session.page)
 
         return await self.manager._run_action(session, "click", target, operation)
+
+    # S.H.O.A.V. clickjacking re-check. The gateway hit-tests the target
+    # before the action runs, but the human-like mouse move that follows
+    # takes tens to hundreds of milliseconds, long enough for a page to swap
+    # an overlay in after the check passed. In enforce mode the topmost
+    # element is checked again at the exact dispatch point, immediately
+    # before mousedown, and the click is aborted if it would not land on the
+    # intended target (or, for raw coordinates, would land on a transparent
+    # or absurd z-index overlay).
+    _OVERLAY_RECHECK_TARGET_JS = """(target, [x, y]) => {
+        const top = document.elementFromPoint(x, y);
+        if (!top) return { ok: false, tag: null };
+        const ok = target === top || target.contains(top);
+        const style = window.getComputedStyle(top);
+        return { ok: ok, tag: top.tagName, opacity: style.opacity, z_index: style.zIndex };
+    }"""
+
+    _OVERLAY_RECHECK_POINT_JS = """([x, y]) => {
+        const top = document.elementFromPoint(x, y);
+        if (!top) return { ok: false, tag: null };
+        const style = window.getComputedStyle(top);
+        const opacity = parseFloat(style.opacity);
+        const z = parseInt(style.zIndex, 10);
+        const suspicious = (opacity < 0.1 && style.pointerEvents !== 'none') || (!isNaN(z) && z > 100000);
+        return { ok: !suspicious, tag: top.tagName, opacity: style.opacity, z_index: style.zIndex };
+    }"""
+
+    def guard_recheck_enabled(self) -> bool:
+        settings = getattr(self.manager, "settings", None)
+        return str(getattr(settings, "shoav_guard_mode", "off") or "off").strip().lower() == "enforce"
+
+    def overlay_recheck(self, session: "BrowserSession", locator: Any | None):
+        async def verify(px: float, py: float) -> None:
+            try:
+                if locator is not None:
+                    hit = await locator.evaluate(self._OVERLAY_RECHECK_TARGET_JS, [px, py], timeout=2000)
+                else:
+                    hit = await session.page.evaluate(self._OVERLAY_RECHECK_POINT_JS, [px, py])
+            except Exception as exc:
+                logger.info("shoav overlay re-check failed, click aborted: %s", exc)
+                hit = {"ok": False, "tag": None}
+            if isinstance(hit, dict) and hit.get("ok") is True:
+                return
+            tag = hit.get("tag") if isinstance(hit, dict) else None
+            raise BrowserActionError(
+                "S.H.O.A.V. aborted the click: the element at the click point changed after the "
+                f"overlay check (topmost now <{tag}>, opacity={hit.get('opacity') if isinstance(hit, dict) else None}, "
+                f"z-index={hit.get('z_index') if isinstance(hit, dict) else None}). Possible clickjacking "
+                "overlay. Re-observe before retrying, or request human takeover.",
+                code="shoav_overlay_recheck",
+                action="click",
+                retryable=False,
+                details={"shoav": {"stage": "egress", "verdict": "BLOCK", "tool": "browser.execute_action"}},
+            )
+
+        return verify
 
     async def hover(
         self,
@@ -524,11 +583,17 @@ class BrowserActionService:
             await asyncio.sleep(random.uniform(0.004, 0.018))
         session.mouse_position = (x, y)
 
-    async def click_human_like(self, session: "BrowserSession", x: float, y: float) -> None:
+    async def click_human_like(
+        self, session: "BrowserSession", x: float, y: float, *, verify: Any = None
+    ) -> None:
         jitter_x = x + random.uniform(-2.5, 2.5)
         jitter_y = y + random.uniform(-2.5, 2.5)
         await self.move_mouse_human_like(session, jitter_x, jitter_y)
         await asyncio.sleep(random.uniform(0.03, 0.12))
+        if verify is not None:
+            # Last thing before dispatch: nothing awaits between this check
+            # and mousedown except the check itself.
+            await verify(jitter_x, jitter_y)
         await session.page.mouse.down()
         await asyncio.sleep(random.uniform(0.02, 0.08))
         await session.page.mouse.up()

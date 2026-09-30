@@ -136,6 +136,19 @@ export async function runStart(parsed, { env = process.env } = {}) {
       throw new CliError(`controller did not become healthy (${exited !== null ? `exited: ${exited}` : 'timed out after 120 s'}). Last log lines from ${files.log}:\n${tail(files.log)}`);
     }
     log.ok(`controller up (pid ${child.pid}, log ${files.log})`);
+    // Report what actually runs, not what was asked for: with
+    // SHOAV_GUARD_FAIL=open a guard that fails to load leaves the server
+    // unguarded (mode off) even though --guard asked for more.
+    try {
+      const g = await getJson(`${base}/live-api/guard`);
+      shownGuard = g.mode || 'unknown';
+    } catch (err) {
+      shownGuard = 'unknown';
+      log.warn(`could not read the guard status from ${base}/live-api/guard (${err.message}); the requested guard mode may not be active.`);
+    }
+    if (shownGuard !== 'unknown' && shownGuard !== guard) {
+      log.warn(`guard ${guard} was requested but the server runs with guard ${shownGuard}. The guard filters probably failed to load; see ${files.log}. The server is NOT protected as requested.`);
+    }
   }
 
   let uiUp = await portInUse(UI_PORT);
