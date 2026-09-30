@@ -222,11 +222,19 @@ class McpHttpTransport:
             try:
                 tool_request = McpToolCallRequest.model_validate(params)
             except ValidationError as exc:
+                # include_context/include_url off: ctx can hold exception objects that
+                # are not JSON serialisable; default=str keeps the reply encodable.
+                errors = exc.errors(include_url=False, include_context=False)
+                details = "; ".join(
+                    f"{'.'.join(str(part) for part in err.get('loc', ())) or 'params'}: {err.get('msg', 'invalid')}"
+                    for err in errors
+                )
                 return self._json_error_response(
                     request_id,
                     -32602,
-                    "Invalid tools/call params",
-                    data={"errors": exc.errors()},
+                    f"Invalid tools/call params: {details}. params must be "
+                    '{"name": "<tool>", "arguments": {...}} with arguments as an object.',
+                    data={"errors": json.loads(json.dumps(errors, default=str))},
                     headers=self._session_headers(session),
                 )
             client_name = session.client_info.get("name")

@@ -110,7 +110,9 @@ INTERACTABLES_SCRIPT = r"""
     const raw = el.getAttribute('aria-label')
       || el.getAttribute('placeholder')
       || el.innerText
-      || el.value
+      // Only button-like inputs use their value as a label; a field's value is
+      // what the user typed (possibly a password) and must never be echoed.
+      || (['submit','button','reset'].includes(String(el.type || '').toLowerCase()) && el.tagName === 'INPUT' ? el.value : '')
       || el.getAttribute('name')
       || el.id
       || el.href
@@ -171,7 +173,7 @@ ACTIVE_ELEMENT_SCRIPT = r"""
     element_id: el.dataset?.operatorId || null,
     name: el.getAttribute('name'),
     id: el.id || null,
-    label: (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || el.value || '').toString().replace(/\s+/g, ' ').trim().slice(0, 120)
+    label: (el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || (['submit','button','reset'].includes(String(el.type || '').toLowerCase()) && el.tagName === 'INPUT' ? el.value : '') || el.getAttribute('name') || '').toString().replace(/\s+/g, ' ').trim().slice(0, 120)
   };
 }
 """
@@ -204,7 +206,7 @@ PAGE_SUMMARY_SCRIPT = r"""
             field.getAttribute('aria-label')
               || field.getAttribute('placeholder')
               || field.innerText
-              || field.value
+              || (['submit','button','reset'].includes(String(field.type || '').toLowerCase()) && field.tagName === 'INPUT' ? field.value : '')
               || field.getAttribute('name')
               || field.id,
             80
