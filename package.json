@@ -1,0 +1,57 @@
+{
+  "name": "shoav",
+  "version": "0.1.0",
+  "description": "Installer and runner for S.H.O.A.V., a guarded browser MCP server and agent skill that screens web content and actions for AI agents (alpha).",
+  "type": "module",
+  "bin": {
+    "shoav": "cli/bin/shoav.js"
+  },
+  "files": [
+    "cli/bin",
+    "cli/src",
+    "cli/README.md",
+    "server",
+    "guard",
+    "skills",
+    "e2e/fixtures",
+    "README.md",
+    "!**/node_modules",
+    "!**/.next",
+    "!**/.local-data*",
+    "!server/data",
+    "!server/.github",
+    "!server/.devcontainer",
+    "!**/__pycache__",
+    "!**/*.pyc",
+    "!**/*.tsbuildinfo",
+    "!**/.pytest_cache",
+    "!**/.ruff_cache"
+  ],
+  "scripts": {
+    "test": "node --test cli/test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "browser",
+    "security",
+    "prompt-injection",
+    "dark-patterns",
+    "claude-code",
+    "opencode",
+    "antigravity"
+  ],
+  "author": "Vassu-V and str-VaibhavThakkar",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vassu-v/SHOAV.git"
+  },
+  "homepage": "https://github.com/vassu-v/SHOAV",
+  "bugs": {
+    "url": "https://github.com/vassu-v/SHOAV/issues"
+  }
+}
