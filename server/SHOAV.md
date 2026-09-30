@@ -48,7 +48,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Por
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-local.ps1 -Port 18500 -Stop
 ```
 
-Options: `-Port`, `-Guard off|observe|enforce` (default off), `-Headless`, `-Background`, `-DataDir`, `-AllowedHosts`,
+Options: `-Port`, `-Guard off|observe|enforce` (default enforce), `-Headless`, `-Background`, `-DataDir`, `-AllowedHosts`,
 `-LiveUiBaseUrl`. The script sets per-process environment only, no global settings. It expects Python with the controller's
 requirements and Chromium installed (`pip install -r controller\requirements.txt`, `python -m playwright install chromium`).
 
@@ -74,7 +74,7 @@ writable, and add `HEADLESS=true` on a machine with no display.
 
 | Variable | Meaning |
 |---|---|
-| `SHOAV_GUARD_MODE` | `off` (default), `observe`, `enforce` |
+| `SHOAV_GUARD_MODE` | `off`, `observe`, `enforce`. The controller's own default if this is unset is `off` (fails safe for embedders who set nothing); `start-local.ps1` and the `shoav` CLI both explicitly set it to `enforce`, so the two documented ways to start the server are protected by default |
 | `SHOAV_GUARD_FAIL` | `open` (default, a crashing filter lets the result through) or `closed` |
 | `SHOAV_FILTERS_PATH` | Override where the guard code is loaded from. Defaults to `../guard` in this repo |
 | `MCP_TOOL_NAME_STYLE` | `underscore` or `dotted` (upstream default) |

@@ -14,7 +14,7 @@ param(
   [string]$AllowedHosts = "*",
   [string]$LiveUiBaseUrl = "http://127.0.0.1:3200",
   [ValidateSet("off", "observe", "enforce")]
-  [string]$Guard = "off",
+  [string]$Guard = "enforce",
   [switch]$Headless,
   [switch]$Background,
   [switch]$Status,
