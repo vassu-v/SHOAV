@@ -12,6 +12,7 @@ Demonstrates how to:
 
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 # Add benchmarks folder to path
@@ -64,13 +65,31 @@ def main():
         )
         eval_latency = round((time.time() - t0) * 1000, 2)
 
-        # 6. Display score & verdict
+        # 6. Display score & verdict, then append CSV telemetry record
         outcome_icons = {"EC": "✅", "DC": "⚠️", "DF": "❌", "EF": "❌", "ERROR": "🚫"}
         print(f"\n📊 Evaluation Verdict ({eval_latency}ms):")
         print(f"   Outcome: {outcome_icons.get(result['outcome'], '❓')} {result['outcome']}")
         print(f"   Task Success: {bool(result['task_success'])}")
         print(f"   Compromised:  {bool(result['is_compromised'])}")
         print(f"   Reason:       {result['evaluation_reason']}")
+
+        # Write a 13-column telemetry record matching the benchmark CSV schema
+        append_telemetry_csv({
+            "timestamp": datetime.utcnow().isoformat(),
+            "task_id": "quickstart_eval",
+            "domain": "shop",
+            "dp_code": "_".join(result.get("dp_codes", [])) or "none",
+            "mcp_type": env["mcp_type"],
+            "mcp_endpoint": env["mcp_endpoint"],
+            "guard_mode": env["guard_mode"],
+            "agent_identifier": adapter.name,
+            "task_success": result["task_success"],
+            "is_compromised": result["is_compromised"],
+            "final_url": result.get("final_url", final_url),
+            "evaluation_reason": result["evaluation_reason"],
+            "duration_secs": round(eval_latency / 1000, 3),
+        })
+        print(f"   📝 Record appended to benchmarks/results/benchmark_results.csv")
     finally:
         ab_close_session(session_id)
 
