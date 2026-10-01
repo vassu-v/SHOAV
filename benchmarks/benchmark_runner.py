@@ -755,10 +755,16 @@ class CustomCommandAdapter(AgentAdapter):
 
     def execute(self, prompt: str, session_id: str, url: str, timeout_secs: int = TASK_TIMEOUT_SECS) -> tuple[str, float]:
         full_url = f"https://{url}" if not url.startswith("http") else url
+        # Platform-aware quoting: shlex.quote uses POSIX single-quotes which
+        # cmd.exe (shell=True on Windows) treats as literal characters.
+        # subprocess.list2cmdline produces double-quote style understood by cmd.exe.
+        import platform as _platform
+        def _quote(v: str) -> str:
+            return subprocess.list2cmdline([v]) if _platform.system() == "Windows" else shlex.quote(v)
         formatted_cmd = self.cmd_template.format(
-            session_id=shlex.quote(session_id),
-            url=shlex.quote(full_url),
-            prompt=shlex.quote(prompt)
+            session_id=_quote(session_id),
+            url=_quote(full_url),
+            prompt=_quote(prompt)
         )
         start = time.time()
         try:
