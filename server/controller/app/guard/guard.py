@@ -1,8 +1,13 @@
 """ShoavGuard: thin controller-side wrapper around the S.H.O.A.V. filter core.
 
-Wiring only (C-1). The gateway behavior hooks (C-3/C-4/C-5) are owned by
-another agent; this module exposes the guard object, its mode/counters, and
-fail-open decide helpers with no gateway imports.
+Wiring only (C-1). This module exposes the guard object, its mode/counters,
+and fail-open decide helpers with no gateway imports.
+
+Counting contract: the decide_* helpers never touch the verdict counters.
+The gateway counts exactly once per guarded tool call and stage, with the
+final verdict (after any gateway side override), in
+McpToolGateway._shoav_emit. Only the errors and fail_open counters are
+maintained here, since they describe filter health, not verdicts.
 """
 
 from __future__ import annotations
@@ -15,9 +20,6 @@ logger = logging.getLogger(__name__)
 
 # Canonical scrub home (RECON unify a): connectors.rewrite._scrub_field via
 # scrub_with_count. This module keeps no sentence logic of its own.
-# PENDING-GATEWAY: controller/app/tool_gateway/gateway.py lines 990-1040
-# (_shoav_scrub_field) still carry a local copy; leave it untouched here
-# (another agent owns gateway.py) and point it at connectors on their pass.
 try:
     from connectors.rewrite import REMOVED_MARKER as _REMOVED_MARKER
     from connectors.rewrite import scrub_with_count as _canonical_scrub_with_count
@@ -41,6 +43,10 @@ _COUNTER_KEYS = (
 )
 
 
+class GuardUnavailableError(RuntimeError):
+    """Raised at startup when the guard is required (fail closed) but cannot load."""
+
+
 def resolve_guard_fail(settings: Any = None, default: str = "open") -> str:
     """Canonical SHOAV_GUARD_FAIL reader (RECON unify c).
 
@@ -48,9 +54,7 @@ def resolve_guard_fail(settings: Any = None, default: str = "open") -> str:
     line 115, alias SHOAV_GUARD_FAIL) wins when a settings object is
     supplied; otherwise the SHOAV_GUARD_FAIL env var is read. Unknown
     values warn and fall back to open. Returns "open" or "closed".
-    PENDING-GATEWAY: controller/app/tool_gateway/gateway.py line 425
-    (_shoav_fail_closed) reads os.getenv directly and ignores
-    Settings/guard.fail; it should delegate here on the owning pass.
+    The gateway (_shoav_fail_closed) delegates here.
     """
     raw = None
     if settings is not None:
@@ -84,8 +88,12 @@ class ShoavGuard:
     def from_settings(cls, settings: Any) -> "ShoavGuard | None":
         """Build a guard from controller Settings, or None when off.
 
-        Returns None when SHOAV_GUARD_MODE is off (zero overhead path) and
-        when the filter core cannot be loaded (fail open with a log line).
+        Returns None when SHOAV_GUARD_MODE is off (zero overhead path).
+        When the filter core cannot be loaded or initialised, the fail
+        policy decides: SHOAV_GUARD_FAIL=closed raises GuardUnavailableError
+        so the server refuses to start unguarded; open (the default) logs
+        at ERROR level and returns None (the server runs with no guard, and
+        GET /live-api/guard reports mode off).
         """
         raw_mode = getattr(settings, "shoav_guard_mode", "off") or "off"
         mode = str(raw_mode).strip().lower()
@@ -100,21 +108,38 @@ class ShoavGuard:
 
         ingress_cls, egress_cls = load_filter_classes(settings)
         if ingress_cls is None and egress_cls is None:
-            logger.warning("shoav filters unavailable, guard disabled (fail open)")
+            cls._unavailable(mode, fail, "shoav filters could not be imported")
             return None
         try:
             ingress = ingress_cls() if ingress_cls is not None else None
             egress = egress_cls() if egress_cls is not None else None
-        except Exception:
-            logger.warning("shoav filter init failed, guard disabled (fail open)", exc_info=True)
+        except Exception as exc:
+            cls._unavailable(mode, fail, f"shoav filter init failed: {exc}", exc_info=True)
             return None
         return cls(mode=mode, fail=fail, ingress_filter=ingress, egress_filter=egress)
+
+    @staticmethod
+    def _unavailable(mode: str, fail: str, detail: str, *, exc_info: bool = False) -> None:
+        """Fail loud (closed) or fail open with an ERROR log line."""
+        if fail == "closed":
+            logger.error(
+                "%s; SHOAV_GUARD_MODE=%s with SHOAV_GUARD_FAIL=closed, refusing to start unguarded",
+                detail, mode, exc_info=exc_info,
+            )
+            raise GuardUnavailableError(
+                f"{detail}. SHOAV_GUARD_MODE={mode} and SHOAV_GUARD_FAIL=closed, so the "
+                "server will not start without the guard. Fix SHOAV_FILTERS_PATH or set "
+                "SHOAV_GUARD_FAIL=open to run unguarded."
+            )
+        logger.error(
+            "%s; SHOAV_GUARD_MODE=%s requested but the guard is DISABLED (SHOAV_GUARD_FAIL=open). "
+            "The server is running with NO protection.",
+            detail, mode, exc_info=exc_info,
+        )
 
     def _fail_open_result(self, stage: str, reason: str) -> dict[str, Any]:
         self.counters["errors"] += 1
         if self.fail == "closed":
-            key = "ingress_block" if stage == "ingress" else "egress_block"
-            self.counters[key] += 1
             return {
                 "verdict": "BLOCK",
                 "enforced": True,
@@ -272,9 +297,6 @@ class ShoavGuard:
                             {"reason": "supplemental_instruction_pattern", "count": removed}
                         ]
                     }
-        key = f"ingress_{verdict.lower()}"
-        if key in self.counters:
-            self.counters[key] += 1
         enforced = self.mode == "enforce" and verdict in ("REWRITE", "BLOCK", "ESCALATE")
         sanitized = {
             "text_excerpt": clean_text,
@@ -327,9 +349,6 @@ class ShoavGuard:
                 logger.warning("shoav egress filter failed: %s", exc, exc_info=True)
                 return self._fail_open_result("egress", f"egress filter error: {exc}")
             verdict = str(result.get("verdict", "ALLOW")).upper()
-            key = f"egress_{verdict.lower()}"
-            if key in self.counters:
-                self.counters[key] += 1
             enforced = self.mode == "enforce" and verdict in ("BLOCK", "ESCALATE")
             out: dict[str, Any] = {
                 "verdict": verdict,
@@ -361,9 +380,6 @@ class ShoavGuard:
                 logger.warning("shoav egress filter failed: %s", exc, exc_info=True)
                 return self._fail_open_result("egress", f"egress filter error: {exc}")
             verdict = str(result.get("verdict", "ALLOW")).upper()
-            key = f"egress_{verdict.lower()}"
-            if key in self.counters:
-                self.counters[key] += 1
             enforced = self.mode == "enforce" and verdict in ("BLOCK", "ESCALATE")
             return {
                 "verdict": verdict,
@@ -388,9 +404,6 @@ class ShoavGuard:
             logger.warning("shoav egress filter failed: %s", exc, exc_info=True)
             return self._fail_open_result("egress", f"egress filter error: {exc}")
         verdict = str(result.get("verdict", "ALLOW")).upper()
-        key = f"egress_{verdict.lower()}"
-        if key in self.counters:
-            self.counters[key] += 1
         enforced = self.mode == "enforce" and verdict in ("BLOCK", "ESCALATE")
         return {
             "verdict": verdict,

@@ -256,7 +256,16 @@ class TestFormStateLiveProbe(unittest.TestCase):
 
 class TestFloodLiveProbe(unittest.TestCase):
     def test_flood_probe_counts_flow_pre_caps_and_block(self):
-        flood = {"element_count": 720, "text_chars": 900}
+        # The primary flood signal is raw_interactive_fanout (most
+        # interactive elements under one parent), not raw_element_count
+        # (see constants.py / rules.evaluate_flood_signal). gateway.py's
+        # _shoav_add_flood_facts maps FLOOD_PROBE_SCRIPT's
+        # "interactive_fanout" key to the ingress payload's
+        # "raw_interactive_fanout" key, so this flow carries the fan-out
+        # value end to end once merged with the gateway-side wiring
+        # (worktree-agent-ad537acb98c236358). 720 filler buttons under one
+        # parent is well past the fan-out threshold, so the flow blocks.
+        flood = {"element_count": 720, "text_chars": 900, "interactive_fanout": 720}
         page = FakePage(flood=flood, mutation={"count": 1, "seconds": 5.0, "rate": 0.2})
         gw = _gateway(page)
         self.assertEqual(_run(gw._shoav_flood_probe("s1")), flood)
@@ -265,7 +274,8 @@ class TestFloodLiveProbe(unittest.TestCase):
         payload = {"interactables": [], "text_excerpt": "Catalog",
                    "accessibility_outline": {"nodes": []}}
         res = IngressFilter().process(payload, raw_element_count=720,
-                                      raw_text_chars=900, mutation=mut)
+                                      raw_text_chars=900,
+                                      raw_interactive_fanout=720, mutation=mut)
         self.assertEqual(res["verdict"], Verdict.BLOCK)
 
     def test_flood_html_shape_blocks_benign_allows(self):
@@ -273,8 +283,11 @@ class TestFloodLiveProbe(unittest.TestCase):
         self.assertIn("720", html)
         payload = {"interactables": [], "text_excerpt": "Catalog",
                    "accessibility_outline": {"nodes": []}}
+        # flood.html's 720 filler buttons all sit under one parent
+        # (#flood-root), so the signal that catches this shape is
+        # interactive fan-out, not raw element count.
         self.assertEqual(IngressFilter().process(
-            payload, raw_element_count=720)["verdict"], Verdict.BLOCK)
+            payload, raw_interactive_fanout=720)["verdict"], Verdict.BLOCK)
         self.assertEqual(IngressFilter().process(
             payload, raw_element_count=40, raw_text_chars=800,
             mutation_rate=2.0)["verdict"], Verdict.ALLOW)

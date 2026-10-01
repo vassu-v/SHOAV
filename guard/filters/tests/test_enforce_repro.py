@@ -104,11 +104,15 @@ class TestReproFloodBlock(unittest.TestCase):
         self.assertIsNone(res["payload"])
 
     def test_720_raw_element_count_blocks(self):
+        # Primary flood signal is interactive fan-out under one parent, not
+        # raw element count (raw count is now a gross-abuse backstop with a
+        # much higher floor). 720 filler nodes under one parent mirrors
+        # fixtures/flood.html's shape.
         res = IngressFilter().process(
-            clean_observation_payload(), raw_element_count=720)
+            clean_observation_payload(), raw_interactive_fanout=720)
         self.assertEqual(
             res["verdict"], Verdict.BLOCK,
-            "720 raw elements must BLOCK, got %r" % (res.get("verdict"),),
+            "720 raw interactive fan-out must BLOCK, got %r" % (res.get("verdict"),),
         )
 
 

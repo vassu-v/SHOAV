@@ -68,3 +68,6 @@ GEMINI.md
 .local-data*/
 shoav-mcp/tmp_*
 web/.qa/
+
+# --- Claude Code worktrees (agent isolation) ---
+.claude/

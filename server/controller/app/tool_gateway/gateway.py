@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import inspect
 import json
 import logging
 import os
@@ -178,6 +180,77 @@ SHOAV_INGRESS_TOOLS = frozenset(
 )
 SHOAV_INGRESS_HEADER = "[S.H.O.A.V. INGRESS SHIELD]"
 
+# Verdict counting (single mechanism): every guard decision is reported
+# through McpToolGateway._shoav_emit. Inside a tool call, emits land in this
+# per-call tally (one slot per counter stage, keeping the most severe final
+# verdict) and call_tool flushes it once, so one guarded tool call moves each
+# stage counter by exactly one. Posthoc checks are egress side checks and
+# count under egress. Outside a tool call (unit tests driving _shoav_emit
+# directly) the emit increments the counter itself.
+_SHOAV_CALL_TALLY: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
+    "shoav_call_tally", default=None
+)
+_SHOAV_SEVERITY = {"ALLOW": 0, "REWRITE": 1, "ESCALATE": 2, "BLOCK": 3}
+_SHOAV_STAGE_VERDICTS = {
+    "ingress": ("ALLOW", "REWRITE", "BLOCK", "ESCALATE"),
+    "egress": ("ALLOW", "BLOCK", "ESCALATE"),
+}
+
+
+# Live submit-control facts for one element (S1/S12). Applies the HTML rule
+# for what a click on it submits; see _shoav_is_submit_control_async.
+_SHOAV_SUBMIT_INFO_JS = """(el) => {
+    const btn = (el.closest && el.closest(
+        'button, input[type="submit"], input[type="image"], input[type="button"], input[type="reset"], [role="button"]'
+    )) || el;
+    const tag = (btn.tagName || '').toLowerCase();
+    const typeAttr = ((btn.getAttribute && btn.getAttribute('type')) || '').toLowerCase();
+    let formSubmit = false;
+    if (tag === 'button') {
+        // The type property normalises a missing or invalid attribute to
+        // "submit" per the HTML spec. An explicit type=submit counts even
+        // outside a form.
+        formSubmit = typeAttr === 'submit' || (btn.type === 'submit' && !!btn.form);
+    } else if (tag === 'input') {
+        formSubmit = btn.type === 'submit' || btn.type === 'image';
+    }
+    return {
+        tag: tag,
+        type: typeAttr,
+        in_form: !!btn.form,
+        form_submit: formSubmit,
+        text: (btn.innerText || btn.value || (btn.getAttribute && btn.getAttribute('aria-label')) || '').slice(0, 160),
+    };
+}"""
+
+
+def _shoav_supported_kwargs(fn: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Drop keyword arguments fn does not accept (filter core version skew)."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return kwargs
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return kwargs
+    return {key: value for key, value in kwargs.items() if key in params}
+
+
+def _shoav_counter_stage(stage: str) -> str:
+    return "ingress" if stage == "ingress" else "egress"
+
+
+def _shoav_is_enter_key(key: Any) -> bool:
+    """True for any key chord whose final key submits a form (Enter variants)."""
+    if not isinstance(key, str) or not key:
+        return False
+    last = key.split("+")[-1].strip().lower()
+    return last in ("enter", "numpadenter", "return")
+
+
+def _shoav_ref_selector(element_id: str) -> str:
+    escaped = str(element_id).replace("\\", "\\\\").replace('"', '\\"')
+    return f'[data-operator-id="{escaped}"]'
+
 # Single-source JS probes (Task 6c): canonical home is
 # guard/filters/egress/scripts.py. The names below stay as thin
 # aliases so existing imports keep working; no duplicated script text.
@@ -340,9 +413,14 @@ class McpToolGateway:
         metric_tool = canonical_name if known_spec is not None else "__unknown__"
         status = "error"
         live_call = LiveCall(self.live_view, self.manager, canonical_name, payload.arguments) if self.live_view else None
+        tally_token = _SHOAV_CALL_TALLY.set({})
         try:
             try:
-                response = await self._call_tool(payload, live_call)
+                try:
+                    response = await self._call_tool(payload, live_call)
+                finally:
+                    self._shoav_flush_tally(_SHOAV_CALL_TALLY.get())
+                    _SHOAV_CALL_TALLY.reset(tally_token)
             except BaseException:
                 # Cancellation or a bug escaping _call_tool: still close the timeline entry.
                 if live_call is not None:
@@ -447,6 +525,13 @@ class McpToolGateway:
                 isError=True,
             )
         except BrowserActionError as exc:
+            if exc.code == "shoav_overlay_recheck":
+                # The dispatch-time overlay re-check (actions.click) aborted
+                # the click: that is the final egress verdict for this call.
+                await self._shoav_emit(
+                    live_call, stage="egress", tool=spec.name, verdict="BLOCK",
+                    reason=exc.message, enforced=True,
+                )
             detail = _scrub_local_paths(exc.payload)
             return McpToolCallResponse(
                 content=[McpToolCallContent(text=json.dumps(detail, ensure_ascii=False))],
@@ -737,6 +822,37 @@ class McpToolGateway:
             self._shoav_reset(session_id)
             self._shoav_state(session_id)["last_origin_path"] = kept_url
 
+    def _shoav_bump_counter(self, counter_stage: str, verdict: str) -> None:
+        counters = getattr(getattr(self, "guard", None), "counters", None)
+        if not isinstance(counters, dict):
+            return
+        key = f"{counter_stage}_{verdict.lower()}"
+        if key in counters:
+            try:
+                counters[key] += 1
+            except Exception:
+                pass
+
+    def _shoav_flush_tally(self, tally: dict[str, str] | None) -> None:
+        """Count one final verdict per stage for the tool call that just ended."""
+        if not tally:
+            return
+        for counter_stage, verdict in tally.items():
+            self._shoav_bump_counter(counter_stage, verdict)
+
+    def _shoav_count(self, stage: str, verdict: str) -> None:
+        counter_stage = _shoav_counter_stage(stage)
+        normalized = str(verdict or "").strip().upper()
+        if normalized not in _SHOAV_STAGE_VERDICTS[counter_stage]:
+            return
+        tally = _SHOAV_CALL_TALLY.get()
+        if tally is None:
+            self._shoav_bump_counter(counter_stage, normalized)
+            return
+        previous = tally.get(counter_stage)
+        if previous is None or _SHOAV_SEVERITY[normalized] > _SHOAV_SEVERITY[previous]:
+            tally[counter_stage] = normalized
+
     async def _shoav_emit(
         self,
         live_call: LiveCall | None,
@@ -751,18 +867,12 @@ class McpToolGateway:
         mode: str | None = None,
         enforced: bool = False,
     ) -> None:
+        # The ONE counting point for guard verdicts (see _SHOAV_CALL_TALLY).
+        # Callers pass the final verdict of a logical check, after any
+        # gateway side override, exactly once per check.
         try:
             try:
-                normalized = str(verdict or "").strip().upper()
-                if stage == "egress" and normalized in ("ALLOW", "BLOCK", "ESCALATE"):
-                    counters = getattr(getattr(self, "guard", None), "counters", None)
-                    if isinstance(counters, dict):
-                        key = f"egress_{normalized.lower()}"
-                        if key in counters:
-                            try:
-                                counters[key] += 1
-                            except Exception:
-                                pass
+                self._shoav_count(stage, verdict)
             except Exception:
                 pass
             if live_call is None:
@@ -871,28 +981,19 @@ class McpToolGateway:
             findings = self._shoav_findings(decision)
             session_id = getattr(arguments, "session_id", None)
             if spec.name in ("browser.observe", "browser.snapshot"):
+                # Note navigation FIRST: a new origin plus path resets the
+                # session cache, and that reset must happen before this call
+                # writes the new page's interactables and form snapshot, not
+                # after (which wiped them on the very call that saw the page).
+                self._shoav_note_navigation(session_id, result.get("url"))
                 state = self._shoav_state(session_id)
                 if isinstance(result.get("interactables"), list) and result.get("interactables"):
                     state["interactables"] = result["interactables"]
                 if state.get("form_snapshot") is None:
                     probed = payload.get("form_controls") if isinstance(payload, dict) else None
                     if isinstance(probed, list) and probed:
-                        state["form_snapshot"] = [
-                            {
-                                "ref": item.get("ref")
-                                or item.get("element_id")
-                                or item.get("name"),
-                                "type": item.get("type"),
-                                "checked": bool(item.get("checked")),
-                                "label": item.get("label") or item.get("name"),
-                            }
-                            for item in probed
-                            if isinstance(item, dict)
-                        ]
-                    else:
-                        state["form_snapshot"] = self._shoav_form_snapshot(result)
-                self._shoav_note_navigation(session_id, result.get("url"))
-            enforced = mode == "enforce" and verdict in ("REWRITE", "BLOCK")
+                        state["form_snapshot"] = self._shoav_snapshot_from_controls(probed)
+            enforced = mode == "enforce" and verdict in ("REWRITE", "BLOCK", "ESCALATE")
             await self._shoav_emit(
                 live_call, stage="ingress", tool=spec.name, verdict=verdict,
                 reason=reason, findings=findings, enforced=enforced,
@@ -908,21 +1009,44 @@ class McpToolGateway:
                 return self._shoav_block_response(
                     reason, tool=spec.name, stage="ingress", verdict=verdict, findings=findings,
                 )
+            if verdict == "ESCALATE":
+                # Same convention as egress ESCALATE: enforce withholds the
+                # result and tells the agent how to proceed.
+                return self._shoav_block_response(
+                    f"{reason} Re-observe before retrying, or request human takeover.",
+                    tool=spec.name, stage="ingress", verdict=verdict, findings=findings,
+                )
             if verdict == "REWRITE":
                 self._shoav_apply_rewrite(spec.name, result, decision, reason, findings)
             return None
         except Exception as exc:
             logger.warning("shoav ingress hook failed for %s: %s", spec.name, exc, exc_info=True)
+            fail_closed = self._shoav_fail_closed()
             await self._shoav_emit(
-                live_call, stage="ingress", tool=spec.name, verdict="ALLOW",
-                reason=f"guard error, failed open: {exc}", enforced=False,
+                live_call, stage="ingress", tool=spec.name,
+                verdict="BLOCK" if fail_closed else "ALLOW",
+                reason=f"guard error, failed {'closed' if fail_closed else 'open'}: {exc}",
+                enforced=fail_closed,
             )
-            if self._shoav_fail_closed():
+            if fail_closed:
                 return self._shoav_block_response(
                     f"Guard unavailable, failing closed: {exc}",
                     tool=spec.name, stage="ingress", verdict="BLOCK",
                 )
             return None
+
+    @staticmethod
+    def _shoav_snapshot_from_controls(probed: list[Any]) -> list[dict]:
+        return [
+            {
+                "ref": item.get("ref") or item.get("element_id") or item.get("name"),
+                "type": item.get("type"),
+                "checked": bool(item.get("checked")),
+                "label": item.get("label") or item.get("name"),
+            }
+            for item in probed
+            if isinstance(item, dict)
+        ]
 
     async def _shoav_build_ingress_payload(
         self, tool: str, arguments: Any, result: dict[str, Any]
@@ -932,27 +1056,12 @@ class McpToolGateway:
         # under both text (adapter shape) and text_excerpt (filter shape)
         # so decide_ingress and the fallback engine path read the same key.
         if tool == "browser.observe":
-            ocr = result.get("ocr") or {}
-            ocr_text = ""
-            if isinstance(ocr, dict):
-                blocks = ocr.get("blocks") or []
-                parts = []
-                for block in blocks:
-                    if isinstance(block, dict):
-                        for key in ("text", "content"):
-                            if block.get(key):
-                                parts.append(str(block[key]))
-                                break
-                    elif isinstance(block, str):
-                        parts.append(block)
-                ocr_text = " ".join(parts)
-                if not ocr_text and isinstance(ocr.get("text"), str):
-                    ocr_text = ocr["text"]
+            # OCR text is not forwarded: the ingress engine has no OCR input,
+            # and OCR is disabled in the shipped configs (OCR_ENABLED=false).
             payload = {
                 "tool": tool,
                 "interactables": result.get("interactables") or [],
                 "text_excerpt": result.get("text_excerpt") or "",
-                "ocr_text": ocr_text,
                 "accessibility_outline": result.get("accessibility_outline") or {},
             }
             style_facts = await self._shoav_style_facts(getattr(arguments, "session_id", None))
@@ -962,11 +1071,7 @@ class McpToolGateway:
             if form_controls is not None:
                 payload["form_controls"] = form_controls
             flood = await self._shoav_flood_probe(getattr(arguments, "session_id", None))
-            if flood is not None:
-                if flood.get("element_count") is not None:
-                    payload["raw_element_count"] = flood["element_count"]
-                if flood.get("text_chars") is not None:
-                    payload["raw_text_chars"] = flood["text_chars"]
+            self._shoav_add_flood_facts(payload, flood)
             mutation = await self._shoav_mutation_feed(getattr(arguments, "session_id", None))
             if mutation is not None:
                 payload["mutation"] = mutation
@@ -998,11 +1103,7 @@ class McpToolGateway:
             if style_facts is not None:
                 snap_payload["style_facts"] = style_facts
             flood = await self._shoav_flood_probe(getattr(arguments, "session_id", None))
-            if flood is not None:
-                if flood.get("element_count") is not None:
-                    snap_payload["raw_element_count"] = flood["element_count"]
-                if flood.get("text_chars") is not None:
-                    snap_payload["raw_text_chars"] = flood["text_chars"]
+            self._shoav_add_flood_facts(snap_payload, flood)
             mutation = await self._shoav_mutation_feed(getattr(arguments, "session_id", None))
             if mutation is not None:
                 snap_payload["mutation"] = mutation
@@ -1051,6 +1152,21 @@ class McpToolGateway:
                 "accessibility_outline": {},
             }
         return None
+
+    # FLOOD_PROBE_SCRIPT key -> ingress payload key (raw, measured before caps).
+    _SHOAV_FLOOD_FACTS = (
+        ("element_count", "raw_element_count"),
+        ("text_chars", "raw_text_chars"),
+        ("interactive_fanout", "raw_interactive_fanout"),
+    )
+
+    @classmethod
+    def _shoav_add_flood_facts(cls, payload: dict[str, Any], flood: dict[str, Any] | None) -> None:
+        if not isinstance(flood, dict):
+            return
+        for probe_key, payload_key in cls._SHOAV_FLOOD_FACTS:
+            if flood.get(probe_key) is not None:
+                payload[payload_key] = flood[probe_key]
 
     async def _shoav_style_facts(self, session_id: str | None) -> list[dict] | None:
         """Gather STYLE_PROBE_SCRIPT facts via live session.page.evaluate.
@@ -1145,26 +1261,6 @@ class McpToolGateway:
         except Exception:
             return None
 
-    @staticmethod
-    def _shoav_form_snapshot(result: dict[str, Any]) -> list[dict]:
-        nodes = ((result.get("accessibility_outline") or {}).get("nodes")) or []
-        snapshot = []
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            role = node.get("role")
-            if role not in ("checkbox", "switch"):
-                continue
-            snapshot.append(
-                {
-                    "ref": node.get("name") or node.get("description") or role,
-                    "type": role,
-                    "checked": node.get("checked"),
-                    "label": node.get("name") or node.get("description"),
-                }
-            )
-        return snapshot
-
     async def _shoav_run_ingress(self, payload: dict[str, Any]) -> Any | None:
         decide = getattr(self.guard, "decide_ingress", None)
         if callable(decide):
@@ -1189,15 +1285,13 @@ class McpToolGateway:
             kwargs["style_facts"] = style_facts
         if form_controls is not None:
             kwargs["form_controls"] = form_controls
-        if payload.get("raw_element_count") is not None:
-            kwargs["raw_element_count"] = payload.get("raw_element_count")
-        if payload.get("raw_text_chars") is not None:
-            kwargs["raw_text_chars"] = payload.get("raw_text_chars")
-        if payload.get("mutation") is not None:
-            kwargs["mutation"] = payload.get("mutation")
-        if payload.get("mutation_rate") is not None:
-            kwargs["mutation_rate"] = payload.get("mutation_rate")
-        outcome = _IngressFilter().process(engine_payload, **kwargs)
+        for key in ("raw_element_count", "raw_text_chars", "raw_interactive_fanout", "mutation", "mutation_rate"):
+            if payload.get(key) is not None:
+                kwargs[key] = payload.get(key)
+        ingress_filter = _IngressFilter()
+        outcome = ingress_filter.process(
+            engine_payload, **_shoav_supported_kwargs(ingress_filter.process, kwargs)
+        )
         return {
             "verdict": outcome.get("verdict"),
             "findings": outcome.get("findings"),
@@ -1214,8 +1308,9 @@ class McpToolGateway:
         """Upgrade guard ALLOW or REWRITE to BLOCK on live raw flood signal.
 
         The guard layer forwards style_facts, form_controls, and
-        mutation_rate but drops raw_element_count, raw_text_chars, and the
-        mutation dict, so a raw pre-cap flood would stay ALLOW live even
+        mutation_rate but drops raw_element_count, raw_text_chars,
+        raw_interactive_fanout, and the mutation dict, so a raw pre-cap
+        flood would stay ALLOW live even
         though IngressFilter.process BLOCKs it at contract level. This
         gateway side check restores the contract without touching guard.
         Fail open: any probe error or missing signal leaves outcome alone.
@@ -1246,9 +1341,17 @@ class McpToolGateway:
                 except (TypeError, ValueError):
                     mut_rate = None
             flooded, reason = _flood(
-                raw_element_count=raw_count,
-                raw_text_chars=raw_chars,
-                mutations_per_second=mut_rate,
+                **_shoav_supported_kwargs(
+                    _flood,
+                    {
+                        "raw_element_count": raw_count,
+                        "raw_text_chars": raw_chars,
+                        # Primary flood signal (most interactive elements
+                        # under one parent); older rule versions lack it.
+                        "raw_interactive_fanout": payload.get("raw_interactive_fanout"),
+                        "mutations_per_second": mut_rate,
+                    },
+                )
             )
         except Exception:
             return outcome
@@ -1415,46 +1518,102 @@ class McpToolGateway:
             if spec.name == "browser.execute_action":
                 decision = getattr(arguments, "action", None)
                 action_name = getattr(decision, "action", None) if decision is not None else None
-                if action_name == "press" and str(getattr(decision, "key", "")).lower() == "enter":
-                    pre = await self._shoav_submit_precheck(
+                submit_trigger = await self._shoav_keyboard_submit_trigger(
+                    getattr(arguments, "session_id", None), decision
+                )
+                if submit_trigger is not None:
+                    # press Enter (any Enter variant) or typed text carrying a
+                    # newline submits the focused form: same pre-check.
+                    return await self._shoav_submit_precheck(
                         getattr(arguments, "session_id", None),
-                        live_call, mode, trigger="press Enter",
+                        live_call, mode, trigger=submit_trigger,
                     )
-                    if pre is not None:
-                        return pre
+                if action_name not in ("click", "select_option"):
                     return None
-                if action_name in ("click", "select_option", "select"):
-                    pre = await self._shoav_submit_precheck_if_submit(
-                        arguments, decision, live_call, mode
-                    )
-                    if pre is not None:
-                        return pre
-                # F-3 overlay path: click plus select_option/select share the
-                # same hit-test (element_id -> [data-operator-id], scroll,
-                # bbox, hit script, verify). Selects dispatch a tap on a
-                # control and need the same clickjacking check.
-                if decision is None or getattr(decision, "action", None) not in (
-                    "click",
-                    "select_option",
-                    "select",
-                ):
-                    return None
+                pre = await self._shoav_submit_precheck_if_submit(
+                    arguments, decision, live_call, mode
+                )
+                if pre is not None:
+                    return pre
+                # F-3 overlay path: click plus select_option share the same
+                # hit-test (element_id -> [data-operator-id], scroll, bbox,
+                # hit script, verify). Selects dispatch a tap on a control and
+                # need the same clickjacking check.
                 return await self._shoav_click_check(arguments, decision, live_call, mode)
             if spec.name == "browser.drag_drop":
                 return await self._shoav_drag_check(arguments, live_call, mode)
             return None
         except Exception as exc:
             logger.warning("shoav egress hook failed: %s", exc, exc_info=True)
+            fail_closed = self._shoav_fail_closed()
             await self._shoav_emit(
-                live_call, stage="egress", tool=spec.name, verdict="ALLOW",
-                reason=f"guard error, failed open: {exc}", enforced=False,
+                live_call, stage="egress", tool=spec.name,
+                verdict="BLOCK" if fail_closed else "ALLOW",
+                reason=f"guard error, failed {'closed' if fail_closed else 'open'}: {exc}",
+                enforced=fail_closed,
             )
-            if self._shoav_fail_closed():
+            if fail_closed:
                 return self._shoav_block_response(
                     f"Guard unavailable, failing closed: {exc}",
                     tool=spec.name, stage="egress", verdict="BLOCK",
                 )
             return None
+
+    async def _shoav_keyboard_submit_trigger(self, session_id: str | None, decision: Any) -> str | None:
+        """Name the keyboard path that submits a form, or None.
+
+        Covers press with any Enter variant (Enter, NumpadEnter, chords
+        ending in Enter) and type whose text carries a newline into a
+        single line field (a newline in a textarea or contenteditable is
+        just a line break, not a submit).
+        """
+        if decision is None:
+            return None
+        action_name = getattr(decision, "action", None)
+        if action_name == "press":
+            key = getattr(decision, "key", None)
+            return f"press {key}" if _shoav_is_enter_key(key) else None
+        if action_name == "type":
+            text = getattr(decision, "text", None)
+            if not isinstance(text, str) or ("\n" not in text and "\r" not in text):
+                return None
+            info = await self._shoav_target_field_info(
+                session_id, getattr(decision, "element_id", None), getattr(decision, "selector", None)
+            )
+            if info is not None and info.get("multiline"):
+                return None
+            return "typed newline"
+        return None
+
+    async def _shoav_target_locator(
+        self, session_id: str | None, element_id: str | None, selector: str | None
+    ) -> Any | None:
+        if not session_id or not (element_id or selector):
+            return None
+        session = await self.manager.get_session(session_id)
+        target = _shoav_ref_selector(element_id) if element_id else selector
+        return session.page.locator(target).first
+
+    async def _shoav_target_field_info(
+        self, session_id: str | None, element_id: str | None, selector: str | None
+    ) -> dict[str, Any] | None:
+        """Live facts about a type target: multiline, contenteditable, maxlength."""
+        try:
+            locator = await self._shoav_target_locator(session_id, element_id, selector)
+            if locator is None:
+                return None
+            info = await locator.evaluate(
+                """(el) => ({
+                    tag: el.tagName,
+                    editable: !!el.isContentEditable,
+                    multiline: el.tagName === 'TEXTAREA' || !!el.isContentEditable,
+                    max_length: (typeof el.maxLength === 'number' && el.maxLength >= 0) ? el.maxLength : null,
+                })""",
+                timeout=2000,
+            )
+        except Exception:
+            return None
+        return info if isinstance(info, dict) else None
 
     async def _shoav_click_check(
         self, arguments: Any, decision: Any, live_call: LiveCall | None, mode: str
@@ -1484,6 +1643,22 @@ class McpToolGateway:
         else:
             return None
         if probe is None:
+            # No bounding box or hit result: the click target could not be
+            # verified. The fail policy decides, same as a filter error.
+            if self._shoav_fail_closed():
+                reason = (
+                    "Egress probe could not locate the click target, failing closed. "
+                    "Re-observe before retrying, or request human takeover."
+                )
+                await self._shoav_emit(
+                    live_call, stage="egress", tool="browser.execute_action", verdict="BLOCK",
+                    reason=reason, target=target, enforced=mode == "enforce",
+                )
+                if mode == "enforce":
+                    return self._shoav_block_response(
+                        reason, tool="browser.execute_action", stage="egress", verdict="BLOCK",
+                    )
+                return None
             await self._shoav_emit(
                 live_call, stage="egress", tool="browser.execute_action", verdict="ALLOW",
                 reason="egress probe unavailable, failed open.", target=target, enforced=False,
@@ -1509,7 +1684,7 @@ class McpToolGateway:
     async def _shoav_probe_element_id(self, session_id: str | None, element_id: str) -> dict[str, Any] | None:
         session = await self.manager.get_session(session_id)
         page = session.page
-        selector = f'[data-operator-id="{element_id}"]'
+        selector = _shoav_ref_selector(element_id)
         locator = page.locator(selector).first
         try:
             await locator.scroll_into_view_if_needed()
@@ -1693,6 +1868,9 @@ class McpToolGateway:
             return None
         session = await self.manager.get_session(session_id)
         page = session.page
+        # One logical decision per drag: the most severe verdict over both
+        # points, emitted (and counted) once.
+        final_verdict, final_reason, final_label = "ALLOW", "Drag points verified clean.", None
         for label, point in points:
             if point[0] == "selector":
                 locator = page.locator(point[1]).first
@@ -1711,17 +1889,21 @@ class McpToolGateway:
             if not isinstance(hit, dict):
                 continue
             verdict, reason = self._shoav_local_click_verdict(None, hit, False, True)
-            if verdict == "BLOCK":
-                await self._shoav_emit(
-                    live_call, stage="egress", tool="browser.drag_drop", verdict=verdict,
-                    reason=f"drag {label}: {reason}",
-                    target={"drag_point": label}, enforced=mode == "enforce",
-                )
-                if mode == "enforce":
-                    return self._shoav_block_response(
-                        f"drag {label}: {reason}",
-                        tool="browser.drag_drop", stage="egress", verdict=verdict,
-                    )
+            if _SHOAV_SEVERITY.get(verdict, 0) > _SHOAV_SEVERITY.get(final_verdict, 0):
+                final_verdict, final_reason, final_label = verdict, reason, label
+        reason = f"drag {final_label}: {final_reason}" if final_label else final_reason
+        enforced = mode == "enforce" and final_verdict in ("BLOCK", "ESCALATE")
+        await self._shoav_emit(
+            live_call, stage="egress", tool="browser.drag_drop", verdict=final_verdict,
+            reason=reason, target={"drag_point": final_label} if final_label else None,
+            enforced=enforced,
+        )
+        if enforced:
+            if final_verdict == "ESCALATE":
+                reason = f"{reason} Re-observe before retrying, or request human takeover."
+            return self._shoav_block_response(
+                reason, tool="browser.drag_drop", stage="egress", verdict=final_verdict,
+            )
         return None
 
     # -- C-5 post-hoc -----------------------------------------------------
@@ -1756,9 +1938,7 @@ class McpToolGateway:
             # reaching here means the action dispatched without raising.
             # Off mode returned above (no-op); observe mode records the
             # touch and only emits events, never blocks (F-J egress half).
-            # fill/input write into the same controls FORM_STATE_SCRIPT
-            # reports, so they mark touched just like click/select/type.
-            if action in ("click", "select_option", "select", "type", "fill", "input") and session_id:
+            if action in ("click", "select_option", "type") and session_id:
                 if element_id:
                     self._shoav_state(session_id)["touched"].add(element_id)
                 if selector:
@@ -1766,25 +1946,50 @@ class McpToolGateway:
                     if resolved:
                         self._shoav_state(session_id)["touched"].add(resolved)
                     self._shoav_state(session_id)["touched"].add(selector)
+            submit_trigger = await self._shoav_keyboard_submit_trigger(session_id, decision)
             if action == "type":
-                return await self._shoav_type_check(session_id, decision, live_call, mode)
-            if action == "press" and str(getattr(decision, "key", "")).lower() == "enter":
-                return await self._shoav_submit_check(session_id, live_call, mode, trigger="press Enter")
-            if action in ("click", "select_option", "select") and await self._shoav_is_submit_control_async(
-                session_id, element_id, selector
+                blocked = await self._shoav_type_check(session_id, decision, live_call, mode)
+                if blocked is not None or submit_trigger is None:
+                    return blocked
+                return await self._shoav_submit_check(session_id, live_call, mode, trigger=submit_trigger)
+            if submit_trigger is not None:
+                return await self._shoav_submit_check(session_id, live_call, mode, trigger=submit_trigger)
+            if action in ("click", "select_option") and await self._shoav_is_submit_control_async(
+                session_id, element_id, selector,
+                getattr(decision, "x", None), getattr(decision, "y", None),
             ):
                 return await self._shoav_submit_check(session_id, live_call, mode, trigger="submit control")
             return None
         except Exception as exc:
             logger.warning("shoav posthoc hook failed: %s", exc, exc_info=True)
-            if self._shoav_fail_closed():
+            fail_closed = self._shoav_fail_closed()
+            await self._shoav_emit(
+                live_call, stage="posthoc", tool=spec.name,
+                verdict="BLOCK" if fail_closed else "ALLOW",
+                reason=f"guard error, failed {'closed' if fail_closed else 'open'}: {exc}",
+                enforced=fail_closed,
+            )
+            if fail_closed:
                 return self._shoav_block_response(
                     f"Guard unavailable, failing closed: {exc}",
                     tool=spec.name, stage="posthoc", verdict="BLOCK",
                 )
             return None
 
+    @staticmethod
+    def _shoav_submit_label(label: Any) -> bool:
+        text = str(label or "").lower()
+        return "submit" in text or "place order" in text
+
     def _shoav_is_submit_control(self, session_id: str | None, element_id: str | None) -> bool:
+        """Cache only answer (fallback when the live DOM probe is unavailable).
+
+        The interactables cache records the raw type attribute, which cannot
+        tell a form submit <button> (no type attribute, inside a form) from a
+        plain one, so only an explicit type=submit or a submit label counts.
+        type=button is never a submit (a "Show details" or "Accept cookies"
+        button is not a form submission).
+        """
         if not session_id or not element_id:
             return False
         for node in self._shoav_state(session_id).get("interactables") or []:
@@ -1793,10 +1998,11 @@ class McpToolGateway:
             if node.get("element_id") != element_id:
                 continue
             node_type = str(node.get("type") or "").lower()
-            label = str(node.get("label") or node.get("name") or "").lower()
-            if node_type in ("submit", "button") or "submit" in label or "place order" in label:
+            if node_type in ("submit", "image"):
                 return True
-            return False
+            if node_type in ("button", "reset"):
+                return False
+            return self._shoav_submit_label(node.get("label") or node.get("name"))
         return False
 
     async def _shoav_resolve_selector_ref(
@@ -1823,48 +2029,65 @@ class McpToolGateway:
         session_id: str | None,
         element_id: str | None,
         selector: str | None = None,
+        x: float | None = None,
+        y: float | None = None,
     ) -> bool:
-        """Submit control check with live fallback when cache misses.
+        """Is this click target a form submit control?
 
-        The T5 runner clicks via selector, and snapshot only paths leave the
-        interactables cache empty, so the cache check alone misses the
-        prechecked fixture submit button. Fall back to the selector text and
-        a live DOM probe of type and label.
+        Every path (element_id, selector, or raw coordinates) goes through
+        the same live DOM probe first: element_id resolves to
+        [data-operator-id=...] and coordinates to elementFromPoint, so a
+        snapshot only flow (empty interactables cache) is still recognised.
+        The probe applies the HTML rule: input type=submit/image, or a
+        <button> whose type is submit (explicit, or missing/invalid, which
+        defaults to submit inside a form). type=button and type=reset are
+        never submits; non-native clickables count only when their label
+        says submit or place order. When the probe is unavailable, fall
+        back to the interactables cache, then the selector text.
         """
+        info = await self._shoav_probe_submit_info(session_id, element_id, selector, x, y)
+        if isinstance(info, dict):
+            return self._shoav_submit_from_info(info)
         if session_id and element_id and self._shoav_is_submit_control(session_id, element_id):
             return True
-        if selector and "submit" in str(selector).lower():
+        return bool(selector and "submit" in str(selector).lower())
+
+    @staticmethod
+    def _shoav_submit_from_info(info: dict[str, Any]) -> bool:
+        if info.get("form_submit") is True:
             return True
-        if not session_id or not selector:
-            return False
-        try:
-            session = await self.manager.get_session(session_id)
-            info = await session.page.evaluate(
-                """([sel]) => {
-                    let el = null;
-                    try { el = document.querySelector(sel); } catch (e) { return null; }
-                    if (!el) return null;
-                    const btn = el.closest ? (el.closest('button, input[type="submit"], input[type="button"], [role="button"]') || el) : el;
-                    return {
-                        tag: btn.tagName,
-                        type: btn.getAttribute ? (btn.getAttribute('type') || '') : '',
-                        text: (btn.innerText || btn.value || '').slice(0, 160),
-                    };
-                }""",
-                [selector],
-            )
-        except Exception:
-            return False
-        if not isinstance(info, dict):
-            return False
-        node_type = str(info.get("type") or "").lower()
-        label = str(info.get("text") or "").lower()
         tag = str(info.get("tag") or "").lower()
-        if node_type in ("submit", "button"):
-            return True
-        if tag == "button":
-            return True
-        return "submit" in label or "place order" in label
+        if tag in ("button", "input"):
+            # Native controls are fully described by form_submit.
+            return False
+        return McpToolGateway._shoav_submit_label(info.get("text"))
+
+    async def _shoav_probe_submit_info(
+        self,
+        session_id: str | None,
+        element_id: str | None,
+        selector: str | None,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> dict[str, Any] | None:
+        try:
+            if element_id or selector:
+                locator = await self._shoav_target_locator(session_id, element_id, selector)
+                if locator is None:
+                    return None
+                info = await locator.evaluate(_SHOAV_SUBMIT_INFO_JS, timeout=2000)
+            elif session_id and x is not None and y is not None:
+                session = await self.manager.get_session(session_id)
+                info = await session.page.evaluate(
+                    "([x, y]) => { const el = document.elementFromPoint(x, y);"
+                    f" if (!el) return null; return ({_SHOAV_SUBMIT_INFO_JS})(el); }}",
+                    [float(x), float(y)],
+                )
+            else:
+                return None
+        except Exception:
+            return None
+        return info if isinstance(info, dict) else None
 
     async def _shoav_type_check(
         self, session_id: str | None, decision: Any, live_call: LiveCall | None, mode: str
@@ -1892,9 +2115,10 @@ class McpToolGateway:
             return None
         if not isinstance(focus, dict):
             return None
-        if expected_ref == selector and not focus.get("ref"):
-            # No operator ref on the field (page not observed yet): check the focused
-            # element against the selector itself.
+        if expected_ref == selector:
+            # The selector target carries no operator ref (page not observed
+            # yet): verify the focused element against the selector itself,
+            # for every selector form (no shortcut that skips the check).
             try:
                 matches = await session.page.evaluate(
                     "(sel) => { try { const el = document.activeElement;"
@@ -1905,6 +2129,11 @@ class McpToolGateway:
                 matches = False
             if matches is True:
                 focus = {**focus, "ref": selector}
+        if not sensitive:
+            focus = await self._shoav_normalize_focus_value(
+                session, focus, expected_value,
+                clear_first=bool(getattr(decision, "clear_first", True)),
+            )
         verdict, reason = await self._shoav_decide_input(
             expected_ref, expected_value, focus, sensitive=sensitive
         )
@@ -1920,6 +2149,68 @@ class McpToolGateway:
             )
         return None
 
+    async def _shoav_normalize_focus_value(
+        self, session: Any, focus: dict, expected_value: str, *, clear_first: bool
+    ) -> dict:
+        """Make the post-typed value comparable to what the agent typed.
+
+        The input rule compares value == typed text exactly, which BLOCKs
+        correct actions: clear_first=false appends to existing text, masked
+        or formatted inputs reshape it, maxlength truncates it, and a
+        contenteditable has no value at all. When the live field shows the
+        typed text landed (per the cases below), hand the rule the typed
+        text as the value so only its focus (ref) check decides. Otherwise
+        the focus result is passed through unchanged and the rule BLOCKs.
+        """
+        try:
+            facts = await session.page.evaluate(
+                "() => { const el = document.activeElement; if (!el) return null;"
+                " return { editable: !!el.isContentEditable,"
+                " text: el.isContentEditable ? (el.innerText || '') : null,"
+                " multiline: el.tagName === 'TEXTAREA' || !!el.isContentEditable,"
+                " max_length: (typeof el.maxLength === 'number' && el.maxLength >= 0) ? el.maxLength : null }; }"
+            )
+        except Exception:
+            facts = None
+        if not isinstance(facts, dict):
+            facts = {}
+        actual = facts.get("text") if facts.get("editable") else focus.get("value")
+        if self._shoav_input_value_ok(
+            expected_value, actual, clear_first=clear_first,
+            multiline=bool(facts.get("multiline")), max_length=facts.get("max_length"),
+        ):
+            return {**focus, "value": expected_value}
+        return focus
+
+    @staticmethod
+    def _shoav_input_value_ok(
+        expected: str, actual: Any, *, clear_first: bool, multiline: bool, max_length: Any
+    ) -> bool:
+        if not isinstance(actual, str) or not isinstance(expected, str):
+            return False
+        want = expected if multiline else expected.replace("\r", "").replace("\n", "")
+        if multiline:
+            # innerText and textarea values normalise line breaks and spaces.
+            want_cmp, got_cmp = " ".join(want.split()), " ".join(actual.split())
+        else:
+            want_cmp, got_cmp = want, actual
+
+        def alnum(text: str) -> str:
+            return "".join(ch for ch in text if ch.isalnum())
+
+        if clear_first:
+            if got_cmp == want_cmp:
+                return True
+            if isinstance(max_length, int) and 0 <= max_length < len(want) and actual == want[:max_length]:
+                return True
+            # Masked or formatted field: same characters, different punctuation.
+            return bool(alnum(want)) and alnum(actual) == alnum(want)
+        # clear_first=false: the text lands at the caret, so the final value
+        # must contain the typed text (a suffix when the caret was at the end).
+        if want_cmp and want_cmp in got_cmp:
+            return True
+        return bool(alnum(want)) and alnum(want) in alnum(actual)
+
     def _shoav_focus_script(self) -> str:
         try:
             from filters.egress.scripts import FOCUS_CHECK_SCRIPT as _script
@@ -1931,11 +2222,10 @@ class McpToolGateway:
         self, expected_ref: str, expected_value: str, focus: dict, *, sensitive: bool
     ) -> tuple[str, str]:
         if sensitive or str(focus.get("type") or "").lower() == "password":
-            if focus.get("ref") == expected_ref or (
-                expected_ref and not str(expected_ref).startswith("[") and focus.get("ref") == expected_ref
-            ):
-                return "ALLOW", "Input focus verified intact (value compare skipped for sensitive field)."
-            if focus.get("found") and not focus.get("ref") and expected_ref.startswith("["):
+            # Value compare is skipped for sensitive fields, focus is not: the
+            # focused element must be the intended one (its ref, or for an
+            # unstamped selector target, a verified activeElement.matches).
+            if focus.get("found") and expected_ref and focus.get("ref") == expected_ref:
                 return "ALLOW", "Input focus verified intact (value compare skipped for sensitive field)."
             return (
                 "BLOCK",
@@ -1996,20 +2286,16 @@ class McpToolGateway:
         session_id = getattr(arguments, "session_id", None)
         element_id = getattr(decision, "element_id", None)
         selector = getattr(decision, "selector", None)
-        is_submit = False
+        # One decision path for every way of naming the target (element_id,
+        # selector, or both): live probe first, cache and selector text as
+        # fallback. Same helper as the posthoc hook, so both agree.
         try:
-            if session_id and element_id and self._shoav_is_submit_control(session_id, element_id):
-                is_submit = True
+            is_submit = await self._shoav_is_submit_control_async(
+                session_id, element_id, selector,
+                getattr(decision, "x", None), getattr(decision, "y", None),
+            )
         except Exception:
             is_submit = False
-        if not is_submit and selector and "submit" in str(selector).lower():
-            is_submit = True
-        if not is_submit and session_id and selector:
-            try:
-                if await self._shoav_is_submit_control_async(session_id, element_id, selector):
-                    is_submit = True
-            except Exception:
-                is_submit = False
         if not is_submit:
             return None
         return await self._shoav_submit_precheck(

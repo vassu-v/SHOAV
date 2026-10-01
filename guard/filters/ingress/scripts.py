@@ -17,6 +17,8 @@ the mutation decision (which needs the benign-hidden-marker allowlist,
 keyword heuristics, etc.) in testable Python instead of buried in a page.evaluate string.
 """
 
+from ..constants import INGRESS_MUTATION_MIN_WINDOW_SECONDS
+
 # Reports checkbox/switch/radio state with label text and a stable ref.
 # Each entry: {element_id, tag, type, checked, label, ref}.
 # element_id is data-operator-id when present, else the DOM id or null.
@@ -198,28 +200,55 @@ MUTATION_OBSERVER_INSTALL_SCRIPT = """
 """
 
 # Reads the counter started by MUTATION_OBSERVER_INSTALL_SCRIPT.
-# Returns {count, seconds, rate} where rate is mutations per second.
-# If the observer was never installed, returns {count: 0, seconds: 0, rate: 0}.
+# Returns {count, seconds, rate, insufficient} where rate is mutations per
+# second. When the observation window is shorter than
+# INGRESS_MUTATION_MIN_WINDOW_SECONDS (for example a read issued right after
+# install), no rate is extrapolated: rate is 0 and insufficient is true, so
+# one clock tick in a ~10 ms window never reads as ~100 mutations/sec.
+# If the observer was never installed, returns {count: 0, seconds: 0, rate: 0,
+# insufficient: true}.
 MUTATION_OBSERVER_READ_SCRIPT = """
 (() => {
+    const minWindow = __SHOAV_MIN_WINDOW__;
     const count = window.__shoavMutCount || 0;
     const start = window.__shoavMutStart || Date.now();
     const seconds = (Date.now() - start) / 1000;
-    return { count: count, seconds: seconds, rate: seconds > 0 ? count / seconds : 0 };
+    const insufficient = !(seconds >= minWindow);
+    return {
+        count: count,
+        seconds: seconds,
+        rate: insufficient ? 0 : count / seconds,
+        insufficient: insufficient,
+    };
 })()
-"""
+""".replace("__SHOAV_MIN_WINDOW__", repr(float(INGRESS_MUTATION_MIN_WINDOW_SECONDS)))
 
-# Raw flood probe (Target 4, F-E): element count plus text volume BEFORE any
-# caps. No filtering, no truncation; the Python flood rule decides. Returns
-# {element_count, text_chars} where text_chars is the length of
-# document.body.innerText (0 when body is missing). Run before compaction so
-# a filler flood cannot hide behind the node budget.
+# Raw flood probe (Target 4, F-E): measured BEFORE any caps. No filtering, no
+# truncation; the Python flood rule decides. Returns
+# {element_count, text_chars, interactive_fanout} where text_chars is the
+# length of document.body.innerText (0 when body is missing) and
+# interactive_fanout is the largest number of interactive elements (links,
+# buttons, form fields, role=button/link, onclick) that are direct children
+# of one parent, the signature of a filler flood (see constants.py). Run
+# before compaction so a filler flood cannot hide behind the node budget.
 FLOOD_PROBE_SCRIPT = """
 (() => {
     let elementCount = 0;
     try { elementCount = document.querySelectorAll('*').length; } catch (e) { elementCount = 0; }
     let textChars = 0;
     try { textChars = (document.body && document.body.innerText ? document.body.innerText.length : 0); } catch (e) { textChars = 0; }
-    return { element_count: elementCount, text_chars: textChars };
+    let fanout = 0;
+    try {
+        const perParent = new Map();
+        const sel = 'a[href],button,input,select,textarea,[role="button"],[role="link"],[onclick]';
+        for (const el of document.querySelectorAll(sel)) {
+            const parent = el.parentElement;
+            if (!parent) continue;
+            const n = (perParent.get(parent) || 0) + 1;
+            perParent.set(parent, n);
+            if (n > fanout) fanout = n;
+        }
+    } catch (e) { fanout = 0; }
+    return { element_count: elementCount, text_chars: textChars, interactive_fanout: fanout };
 })()
 """
