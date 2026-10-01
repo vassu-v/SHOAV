@@ -40,8 +40,10 @@ def main():
         print("❌ Could not connect to browser MCP session.")
         return
 
-    # 3. Choose agent adapter (agy, claude, passive, or custom)
-    adapter = get_agent_adapter(agent_type="passive")
+    # 3. Choose agent adapter — use "agy", "claude", or "custom" for unattended runs.
+    #    Use "passive" only when a human or external script acts in the browser;
+    #    passive mode does not execute any actions autonomously.
+    adapter = get_agent_adapter(agent_type="agy")
 
     try:
         # 4. Run task with continuous LiveSessionWatcher stream
